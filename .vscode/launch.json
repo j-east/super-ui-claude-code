@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "claude-pane",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
+      "program": "${workspaceFolder}/src/server.ts",
+      "args": [],
+      "cwd": "${input:projectDir}",
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "autoAttachChildProcesses": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "projectDir",
+      "type": "promptString",
+      "description": "Folder the shell starts in",
+      "default": "${workspaceFolder}"
+    }
+  ]
+}

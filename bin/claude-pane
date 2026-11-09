@@ -1,0 +1,4 @@
+#!/bin/sh
+# Launch claude-pane in the current directory; extra args pass through to `claude`.
+DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+exec "$DIR/node_modules/.bin/tsx" "$DIR/src/server.ts" "$@"
