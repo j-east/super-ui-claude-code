@@ -208,6 +208,9 @@ final class PaneWindow: NSObject, NSWindowDelegate, WKUIDelegate, WKNavigationDe
       app?.updateBadge()
     case "tab-dropped":
       app?.tabDropped(from: self, tab: "\(d["tab"] ?? "")", only: d["only"] as? Bool ?? false)
+    case "raise": // the inbox in another window asked for a tab here
+      window.makeKeyAndOrderFront(nil)
+      NSApp.activate(ignoringOtherApps: true)
     case "close-window":
       window.close()
     default: break
@@ -412,6 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
   @objc func closeWindow(_ s: Any?) { keyPane?.window.performClose(nil) }
   @objc func nextTab(_ s: Any?) { keyPane?.js("window.cp?.nextTab()") }
   @objc func toggleSplit(_ s: Any?) { keyPane?.js("window.cp?.toggleSplit()") }
+  @objc func toggleInbox(_ s: Any?) { keyPane?.js("window.cp?.toggleInbox()") }
   @objc func prevTab(_ s: Any?) { keyPane?.js("window.cp?.prevTab()") }
   @objc func jumpToWaiting(_ s: Any?) { keyPane?.js("window.cp?.jumpToAttention()") }
   @objc func redraw(_ s: Any?) { keyPane?.js("window.cp?.redraw()") }
@@ -515,6 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       item("Jump to Waiting Tab", #selector(jumpToWaiting(_:)), "j"),
       .separator(),
       item("Split View", #selector(toggleSplit(_:)), "\\"),
+      item("Inbox", #selector(toggleInbox(_:)), "i"),
       item("Redraw Terminal", #selector(redraw(_:)), "l", [.command, .shift]),
       item("Reload Window", #selector(reload(_:)), "r"),
     ])

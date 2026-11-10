@@ -21,6 +21,8 @@ function highlight(code) {
   code.closest('pre')?.classList.add('plain');
 }
 
+import { dialogCard } from './dialogcard.js';
+
 export class TabView {
   /** `pane`: where it starts out mounted (hidden); `mount()` moves it to another pane of a split. */
   constructor(id, { send, theme, home, screen, pane }) {
@@ -40,7 +42,10 @@ export class TabView {
     this.liveEl.hidden = true;
     this.queueEl = el('div', 'queue');
     this.queueEl.hidden = true;
-    this.logEl.append(this.logInner, this.queueEl);
+    this.dialogEl = el('div', 'dlg-dock'); // the question Claude is asking, stuck to the bottom of the transcript
+    this.dialogEl.hidden = true;
+    this.dialog = null;
+    this.logEl.append(this.logInner, this.queueEl, this.dialogEl);
     // Scrolling up unpins; reaching the bottom again re-pins. Only an upward move counts as leaving,
     // so our own smooth scrolls (and content growing under you) never unpin by accident.
     let lastTop = 0;
@@ -230,6 +235,20 @@ export class TabView {
     // Never shrink mid-run: lock in the tallest height so far.
     const h = this.liveEl.offsetHeight;
     if (h > (parseFloat(this.liveEl.style.minHeight) || 0)) this.liveEl.style.minHeight = h + 'px';
+    if (this.pinned) this.glideToBottom();
+  }
+
+  /** The question Claude Code is showing (or null): a card with every option, answerable by click. */
+  setDialog(d) {
+    this.dialog = d;
+    this.dialogEl.replaceChildren();
+    this.dialogEl.hidden = !d;
+    if (!d) return;
+    this.dialogEl.append(dialogCard(d, {
+      onPick: (index) => this.send({ type: 'dialog-pick', index, sig: d.sig }),
+      onCancel: () => this.send({ type: 'dialog-cancel', sig: d.sig }),
+      onType: () => this.term.focus(),
+    }));
     if (this.pinned) this.glideToBottom();
   }
 

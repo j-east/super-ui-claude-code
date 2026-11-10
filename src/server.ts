@@ -59,10 +59,21 @@ const send = (ws: WebSocket, msg: unknown) => { if (ws.readyState === ws.OPEN) w
 const toWindow = (win: string, msg: unknown) => { for (const [ws, w] of clients) if (w === win) send(ws, msg); };
 const windowHasClients = (win: string) => [...clients.values()].includes(win);
 
+// ---------- inbox: every Claude session in every window, for all windows ----------
+const INBOX_EVENTS = new Set(['dialog', 'activity', 'label', 'mode', 'transcript-reset']);
+let inboxTimer: NodeJS.Timeout | null = null;
+const inboxMsg = () => ({ type: 'inbox', items: [...tabs.values()].flatMap((t) => t.inboxItem() ?? []) });
+function scheduleInbox(): void {
+  inboxTimer ??= setTimeout(() => { inboxTimer = null; const m = inboxMsg(); for (const ws of clients.keys()) send(ws, m); }, 150);
+}
+
 function openTab(win: string, cwd: string, claudeArgs?: string[]): Tab {
   const id = String(nextId++);
   // Route by the tab's current window: tabs can be moved between windows.
-  const tab: Tab = new Tab(id, win, cwd, (msg) => toWindow(tab.windowId, { ...msg, tab: id }));
+  const tab: Tab = new Tab(id, win, cwd, (msg) => {
+    toWindow(tab.windowId, { ...msg, tab: id });
+    if (INBOX_EVENTS.has(String(msg.type))) scheduleInbox();
+  });
   tabs.set(id, tab);
   tab.onExit(() => closeTab(id));
   toWindow(win, { ...tab.snapshot(), tab: id });
@@ -78,6 +89,7 @@ function moveTab(tab: Tab, to: string): void {
   tab.windowId = to;
   if (windowHasClients(to)) movedFrom.delete(tab.id); else movedFrom.set(tab.id, from);
   toWindow(from, { type: 'tab-moved', tab: tab.id });
+  scheduleInbox();
   toWindow(to, { ...tab.snapshot(), tab: tab.id });
   toWindow(to, { type: 'focus-tab', tab: tab.id });
   // Target window not connected yet (just being opened): same grace as a window that went away.
@@ -91,6 +103,7 @@ function closeTab(id: string): void {
   tabs.delete(id);
   tab.dispose();
   toWindow(tab.windowId, { type: 'tab-closed', tab: id });
+  scheduleInbox();
 }
 
 // ---------- workspaces ----------
@@ -241,6 +254,7 @@ server.on('upgrade', (req, sock, head) => {
     send(ws, { type: 'hello', home: os.homedir() });
     const mine = [...tabs.values()].filter((t) => t.windowId === win);
     for (const tab of mine) send(ws, { ...tab.snapshot(), tab: tab.id });
+    send(ws, inboxMsg());
     if (!mine.length && !detached) {
       // New window: first ever tab starts where we were launched (and auto-runs claude args).
       const cwd = pendingCwd.get(win) ?? (firstTab ? startCwd : os.homedir());
@@ -274,7 +288,12 @@ server.on('upgrade', (req, sock, head) => {
         return;
       }
       const tab = tabs.get(String(m.tab));
-      if (!tab || tab.windowId !== win) return;
+      if (!tab) return;
+      // The inbox acts on tabs in any window: answer a dialog, or bring a tab's window forward.
+      if (m.type === 'dialog-pick' && typeof m.sig === 'string') { tab.pickDialog(m.index | 0, m.sig); return; }
+      if (m.type === 'dialog-cancel' && typeof m.sig === 'string') { tab.cancelDialog(m.sig); return; }
+      if (m.type === 'reveal') { toWindow(tab.windowId, { type: 'focus-tab', tab: tab.id, raise: true }); return; }
+      if (tab.windowId !== win) return;
       if (m.type === 'input' && typeof m.data === 'string') tab.input(m.data);
       else if (m.type === 'resize') tab.resize(m.cols | 0, m.rows | 0);
       else if (m.type === 'choose-folder') chooseFolder(tab);

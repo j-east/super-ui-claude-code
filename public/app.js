@@ -4,6 +4,7 @@ import { TabView } from './tabview.js';
 import { initWorkspaces } from './workspaces.js';
 import { attachTabDrag, isDragging, consumeDragClick, endDrag } from './tabdrag.js';
 import { Pane } from './pane.js';
+import { initInbox } from './inbox.js';
 
 const $ = (id) => document.getElementById(id);
 // Hosted by the native app? (WKWebView script bridge) Otherwise a plain browser window.
@@ -139,6 +140,7 @@ function renderTabs() {
     attachTabDrag(t, { bar: box, onReorder: reorderTabs, onDetach: detachTab, onDone: renderTabs, onOut: dropHint });
     box.append(t);
   }
+  box.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   $('no-tabs').hidden = views.size > 0;
   for (const p of panes) p.update();
   const waiting = [...views.values()].filter((v) => v.attention).length;
@@ -236,6 +238,13 @@ $('new-tab').onclick = () => send({ type: 'new-tab', from: active?.id });
 $('no-tabs-new').onclick = () => send({ type: 'new-tab' });
 
 $('split-btn').onclick = () => split();
+// Too many tabs to fit: the mouse wheel scrolls the tab bar sideways (like VS Code).
+$('tabs').addEventListener('wheel', (e) => {
+  const box = $('tabs');
+  if (box.scrollWidth <= box.clientWidth) return;
+  box.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  e.preventDefault();
+}, { passive: false });
 
 // ---------- alerts ----------
 document.addEventListener('click', () => {
@@ -271,6 +280,11 @@ const workspaces = initWorkspaces({
   activeId: () => active?.id,
   onClose: () => active?.term.focus(),
 });
+const inbox = initInbox({
+  button: $('inbox-btn'), send, myWindow: params.get('w'),
+  tilde: (p) => (home && p.startsWith(home) ? '~' + p.slice(home.length) : p),
+  onClose: () => active?.term.focus(),
+});
 const saveWorkspace = () => workspaces.open({ focusSave: true });
 const openWsMenu = () => workspaces.open();
 $('ws-btn').onclick = () => openWsMenu();
@@ -299,6 +313,7 @@ window.cp = {
   jumpToAttention: () => jumpToAttention(),
   redraw: () => panes.forEach((p) => p.view?.redraw()),
   toggleSplit: () => split(),
+  toggleInbox: () => inbox.toggle(),
   saveWorkspace: () => saveWorkspace(),
   openWorkspaceMenu: () => openWsMenu(),
   /** Type text into the active tab as a paste (bracketed if the program asked for it). */
@@ -314,6 +329,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) pane
 // ---------- keyboard ----------
 document.addEventListener('keydown', (e) => {
   if (workspaces.isOpen) return; // the modal handles its own keys
+  if (e.metaKey && e.key === 'i') { inbox.toggle(); e.preventDefault(); e.stopPropagation(); return; } // ⌘I inbox
+  if (inbox.isOpen) { if (e.key === 'Escape') { inbox.close(); e.preventDefault(); e.stopPropagation(); } return; }
   if (e.metaKey && e.key === '\\') { split(); e.preventDefault(); e.stopPropagation(); return; } // ⌘\ split / unsplit
   if (e.metaKey && /^[1-9]$/.test(e.key)) {          // ⌘1..9: switch tab
     const v = [...views.values()][Number(e.key) - 1];
@@ -332,7 +349,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Enter') { send({ type: 'input', tab: active.id, data: '\r' }); e.preventDefault(); }
 }, true);
 document.addEventListener('mouseup', (e) => {
-  if (workspaces.isOpen || e.target.closest('select, button, dialog')) return;
+  if (workspaces.isOpen || inbox.isOpen || e.target.closest('select, button, dialog, .inbox')) return;
   if (!String(window.getSelection())) active?.term.focus();
 });
 
@@ -350,6 +367,7 @@ function onMessage(m) {
     return;
   }
   if (m.type === 'workspaces') { workspaces.setList(m.list); return; }
+  if (m.type === 'inbox') { inbox.setItems(m.items); return; }
   if (m.type === 'toast') { toast(m.text); return; }
   if (m.type === 'window-empty') { // last tab moved out: close this window like Chrome does
     if (native) native.postMessage({ type: 'close-window' }); else window.close();
@@ -357,6 +375,7 @@ function onMessage(m) {
   }
   if (m.type === 'focus-tab') {
     if (views.has(m.tab)) activate(m.tab); else if (pendingFocus !== 'next') pendingFocus = m.tab;
+    if (m.raise) { if (native) native.postMessage({ type: 'raise' }); else window.focus(); } // asked for from another window's inbox
     return;
   }
   if (m.type === 'tab-open') {
@@ -366,7 +385,7 @@ function onMessage(m) {
     v.setMode(m.mode, m.cwd);
     v.reset(m.entries);
     v.setQueue(m.queue ?? []);
-    v.lunatic = m.lunatic; v.busy = m.busy; v.snapRows = m.snapRows ?? 0; v.label = m.label ?? null;
+    v.lunatic = m.lunatic; v.busy = m.busy; v.snapRows = m.snapRows ?? 0; v.label = m.label ?? null; v.setDialog(m.dialog ?? null);
     // An empty focused pane (fresh window, or a split waiting for its new tab) takes it.
     if (!focused.view || pendingFocus === m.tab || pendingFocus === 'next') { pendingFocus = null; activate(m.tab); } else renderTabs();
     return;
@@ -383,6 +402,7 @@ function onMessage(m) {
     case 'attention': alertTab(v, m.reason, m.label); break;
     case 'live': v.setLive(m.text); return;
     case 'label': v.label = m.label; renderTabs(); return;
+    case 'dialog': v.setDialog(m.dialog); return;
     case 'snap': v.snapRows = m.rows; paneOf(v)?.autoSnap(); return;
     case 'queue': v.setQueue(m.items); return;
     case 'auto-answer': v.note(`🌀 Lunatic mode picked: ${m.label}`, 'note lunatic-note'); break;

@@ -24,6 +24,7 @@ export class Pane {
     this.view = null;
     this.el = h('section', 'pane');
     this.el.innerHTML = `
+      <header class="pane-head"><b class="ph-label"></b><span class="ph-sum"></span></header>
       <header class="launcher" hidden>
         <span>📁</span><span class="cwd"></span>
         <button data-act="choose">Choose folder…</button>
@@ -42,6 +43,7 @@ export class Pane {
     this.termEl = q('.term-pane');
     this.dividerEl = q('.divider');
     this.statusEl = q('.status'); this.dotEl = q('.dot'); this.whereEl = q('.where');
+    this.headLabel = q('.ph-label'); this.headSum = q('.ph-sum');
     this.lunaticBtn = q('.lunatic'); this.launcherEl = q('.launcher'); this.cwdEl = q('.cwd');
 
     // Clicking anywhere in a pane makes it the one the tab bar and keyboard act on.
@@ -123,6 +125,11 @@ export class Pane {
     const v = this.view;
     this.launcherEl.hidden = !v || v.mode !== 'shell';
     this.el.classList.toggle('lunatic', !!v?.lunatic);
+    // Split view: a header saying which session this half is (the auto label and its sentence).
+    const labelled = v && (v.mode === 'claude' || v.hasTranscript) ? v.label : null;
+    this.headLabel.textContent = v ? (v.mode === 'claude' ? '✳ ' : '') + (labelled?.label || v.title || v.name) : 'No tab';
+    const sum = !v ? '' : labelled?.summary || (v.title && v.title !== this.headLabel.textContent ? v.title : v.tilde(v.cwd));
+    this.headSum.textContent = sum; this.headSum.title = sum;
     if (!v) { this.statusEl.textContent = 'No tab'; this.whereEl.textContent = ''; return; }
     this.cwdEl.textContent = v.tilde(v.cwd); this.cwdEl.title = v.cwd;
     this.whereEl.textContent = v.tilde(v.cwd);

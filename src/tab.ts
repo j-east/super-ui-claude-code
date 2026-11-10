@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { PtySession } from './session.js';
 import { ProcWatch } from './procwatch.js';
-import { Screen } from './screen.js';
+import { Screen, type Dialog } from './screen.js';
 import { cachedLabel, maybeLabel, type Label } from './labeler.js';
 import { TranscriptFollower, projectDirFor, resumedSessionId, sessionIdForPid, findTranscript, type Entry } from './transcript.js';
 
@@ -32,6 +32,9 @@ export class Tab {
   private promptAt = -1;
   private promptCache: ReturnType<Screen['prompt']> | undefined;
   lunatic = false;
+  private dialog: Dialog | null = null; // the question Claude Code is showing, if any
+  private dialogAt = -1;
+  private idleSince = Date.now();       // when Claude last stopped working (for the inbox)
   private label: Label | null = null; // a few words + a sentence about the session, for the tab
 
   private lastWorkAt = 0;      // last output that wasn't just echo of your typing
@@ -75,12 +78,13 @@ export class Tab {
         });
         this.emit({ type: 'transcript-reset', file: null, entries: [] });
         this.setLabel(null);
+        this.dialogAt = -1; // re-read the screen: a dialog may already be showing
         this.liveBaseline = this.screen.liveLines(); // shell output before claude isn't "live"
         this.lastLive = '';
         this.follower.start();
         this.emit(this.modeMsg());
       },
-      claudeStop: () => { this.follower?.stop(); this.emit(this.modeMsg()); },
+      claudeStop: () => { this.follower?.stop(); this.dialogAt = -1; this.emit(this.modeMsg()); },
     }, () => this.shell.lastOutputAt);
     this.watch.start();
     this.timer = setInterval(() => this.tick(), 300);
@@ -92,7 +96,7 @@ export class Tab {
   snapshot(): Record<string, unknown> {
     const snap = this.follower?.snapshot();
     return { type: 'tab-open', screen: this.screen.snapshot(), file: snap?.file ? path.basename(snap.file) : null,
-      entries: snap?.entries ?? [], queue: snap?.queue ?? [], lunatic: this.lunatic, busy: this.busy, snapRows: this.snapRows, label: this.label, ...this.modeFields() };
+      entries: snap?.entries ?? [], queue: snap?.queue ?? [], lunatic: this.lunatic, busy: this.busy, snapRows: this.snapRows, label: this.label, dialog: this.dialog, ...this.modeFields() };
   }
 
   input(data: string): void {
@@ -167,6 +171,29 @@ export class Tab {
     return path.basename(this.cwd) || '/';
   }
 
+  private setDialog(d: Dialog | null): void {
+    if ((d?.sig ?? null) === (this.dialog?.sig ?? null)) return;
+    this.dialog = d;
+    this.emit({ type: 'dialog', dialog: d });
+  }
+
+  /** Pick a row of the dialog on screen. `sig` must match what is showing now, so a stale click does nothing. */
+  pickDialog(index: number, sig: string): void {
+    const d = this.watch.current() ? this.screen.dialog() : null;
+    if (!d || d.sig !== sig) { this.setDialog(d); return; }
+    const keys = Screen.keysFor(d, index);
+    if (keys) this.input(keys);
+  }
+  /** Esc: dismiss the dialog. */
+  cancelDialog(sig: string): void { if (this.dialog?.sig === sig) this.input('\x1b'); }
+
+  /** This tab as the inbox lists it; null for a plain shell. */
+  inboxItem(): Record<string, unknown> | null {
+    if (!this.watch.current()) return null;
+    return { tab: this.id, window: this.windowId, title: this.title, label: this.label, cwd: this.watch.current()!.cwd,
+      state: this.dialog ? 'waiting' : this.busy ? 'working' : 'idle', since: this.idleSince, dialog: this.dialog };
+  }
+
   private setLabel(l: Label | null): void {
     if (JSON.stringify(l) === JSON.stringify(this.label)) return;
     this.label = l;
@@ -232,7 +259,12 @@ export class Tab {
     const claude = !!this.watch.current();
     const quietFor = now - this.shell.lastOutputAt;          // any output (for prompt stability)
     const busy = claude && now - this.lastWorkAt < BUSY_WINDOW; // output that wasn't your typing
-    if (busy !== this.busy) { this.busy = busy; this.emit({ type: 'activity', busy }); }
+    if (busy !== this.busy) { this.busy = busy; if (!busy) this.idleSince = now; this.emit({ type: 'activity', busy }); }
+    // The dialog on screen, re-read once the screen has settled after new output.
+    if (this.shell.lastOutputAt !== this.dialogAt && quietFor >= 250) {
+      this.dialogAt = this.shell.lastOutputAt;
+      this.setDialog(claude ? this.screen.dialog() : null);
+    }
     if (!claude) { this.snapRows = 0; this.busyStart = 0; this.pendingIdle = false; this.setLive(''); return; }
 
     if (busy && !this.busyStart) this.busyStart = now;
