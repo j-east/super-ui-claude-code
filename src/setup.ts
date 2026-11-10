@@ -3,14 +3,15 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { WIN, INSTALL_CLAUDE, claudeCandidates } from './platform.js';
 
 export interface WelcomeInfo {
+  /** The command the Install button types. */
+  install: string;
   claude: { path: string; version: string } | null;
   recents: { cwd: string; at: number }[];
 }
 
-/** Claude Code's own installer (https://claude.ai/install.sh); typed into the tab's shell when you ask for it. */
-export const INSTALL_CLAUDE = 'curl -fsSL https://claude.ai/install.sh | bash';
 
 // ---------- finding claude ----------
 let claudeBin: Promise<string | null> | null = null;
@@ -18,9 +19,16 @@ let claudeBin: Promise<string | null> | null = null;
 export function findClaude(fresh = false): Promise<string | null> {
   if (fresh) claudeBin = null;
   claudeBin ??= (async () => {
-    const home = os.homedir();
-    for (const p of [`${home}/.local/bin/claude`, `${home}/.claude/local/claude`, '/opt/homebrew/bin/claude', '/usr/local/bin/claude']) {
+    for (const p of claudeCandidates()) {
       try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* next */ }
+    }
+    if (WIN) {
+      return new Promise<string | null>((res) => {
+        execFile('where.exe', ['claude'], { timeout: 10_000, windowsHide: true }, (_e, out) => {
+          const lines = String(out ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+          res(lines.find((l) => /\.exe$/i.test(l)) ?? lines.find((l) => /\.cmd$/i.test(l)) ?? null);
+        });
+      });
     }
     // Wherever your shell finds it (nvm, volta, …).
     return new Promise<string | null>((res) => {
@@ -35,7 +43,10 @@ export function findClaude(fresh = false): Promise<string | null> {
 
 function version(bin: string): Promise<string> {
   return new Promise((res) => {
-    execFile(bin, ['--version'], { timeout: 8000 }, (_e, out) => res(String(out ?? '').trim().split('\n')[0]?.slice(0, 60) ?? ''));
+    const done = (_e: unknown, out: unknown) => res(String(out ?? '').trim().split('\n')[0]?.trim().slice(0, 60) ?? '');
+    // An npm install on Windows is a .cmd wrapper, which only runs through the command interpreter.
+    if (/\.cmd$/i.test(bin)) execFile(`"${bin}" --version`, { timeout: 8000, shell: true, windowsHide: true }, done);
+    else execFile(bin, ['--version'], { timeout: 8000, windowsHide: true }, done);
   });
 }
 
@@ -79,5 +90,5 @@ export async function recentFolders(limit = 6): Promise<WelcomeInfo['recents']> 
 
 export async function welcomeInfo(fresh = false): Promise<WelcomeInfo> {
   const [bin, recents] = await Promise.all([findClaude(fresh), recentFolders()]);
-  return { claude: bin ? { path: bin, version: await version(bin) } : null, recents };
+  return { install: INSTALL_CLAUDE, claude: bin ? { path: bin, version: await version(bin) } : null, recents };
 }

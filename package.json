@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Split-pane Claude Code: rendered transcript on top, live terminal below",
+  "description": "Claude Code Super UI: rendered transcript on top, live terminal below",
   "bin": {
     "claude-pane": "bin/claude-pane"
   },
@@ -14,7 +14,10 @@
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
     "build:app": "npm run -s build && sh scripts/build-app.sh",
     "build": "rm -rf build && tsc -p tsconfig.build.json",
-    "dist": "npm run -s build && sh scripts/build-app.sh --dist"
+    "dist": "npm run -s build && sh scripts/build-app.sh --dist",
+    "electron": "npm run -s build && electron .",
+    "dist:win": "npm run -s build && electron-builder --win --x64 --publish never",
+    "smoke": "npm run -s build && node scripts/smoke.mjs"
   },
   "dependencies": {
     "@highlightjs/cdn-assets": "^11.12.0",
@@ -30,7 +33,40 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "main": "electron/main.cjs",
+  "author": "j-east",
+  "build": {
+    "appId": "world.pathwriter.claude-super-ui",
+    "productName": "Claude Code Super UI",
+    "directories": {
+      "output": "dist.noindex/electron",
+      "buildResources": "electron/resources"
+    },
+    "files": [
+      "build/**",
+      "public/**",
+      "electron/*.cjs",
+      "package.json"
+    ],
+    "asar": false,
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "artifactName": "Claude-Code-Super-UI-${version}-win-${arch}.${ext}",
+      "icon": "electron/resources/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

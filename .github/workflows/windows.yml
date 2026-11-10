@@ -1,0 +1,42 @@
+# Builds and smoke-tests the Windows app on a real Windows machine, and publishes the installer.
+#   every push to main: build + smoke test, installer attached to the run (Actions → the run → Artifacts)
+#   a tag like v0.3.0:  the same, plus a GitHub Release with the installer and a portable zip
+name: Windows build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Smoke test (shell, folder tracking, claude detection)
+        run: node scripts/smoke.mjs
+      - name: Package
+        run: npx electron-builder --win --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Claude-Code-Super-UI-windows
+          path: |
+            dist.noindex/electron/*.exe
+            dist.noindex/electron/*.zip
+          if-no-files-found: error
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release create "$GITHUB_REF_NAME" dist.noindex/electron/*.exe dist.noindex/electron/*.zip --title "$GITHUB_REF_NAME" --generate-notes

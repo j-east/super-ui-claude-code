@@ -9,7 +9,8 @@ import { initInbox } from './inbox.js';
 
 const $ = (id) => document.getElementById(id);
 // Hosted by the native app? (WKWebView script bridge) Otherwise a plain browser window.
-const native = window.webkit?.messageHandlers?.native ?? null;
+// (Mac app: WKWebView script bridge. Windows app: the Electron preload's bridge. Same messages.)
+const native = window.webkit?.messageHandlers?.native ?? window.cpHost ?? null;
 // Each window owns its own tabs on the server; keep the id across reloads.
 const params = new URLSearchParams(location.search);
 if (!params.get('w')) { params.set('w', crypto.randomUUID()); history.replaceState(null, '', `?${params}`); }
@@ -316,6 +317,8 @@ window.cp = {
   toggleSplit: () => split(),
   toggleInbox: () => inbox.toggle(),
   reopenTab: () => send({ type: 'reopen-tab' }),
+  /** The host's folder dialog answered: go there in that tab. */
+  cd: (tab, dir) => send({ type: 'cd', tab: String(tab), dir: String(dir) }),
   /** ⌘Z: bring back the tab you last closed. False while you're typing in a text field (then it's a normal undo). */
   undo: () => { if (typingInField()) return false; send({ type: 'reopen-tab' }); return true; },
   saveWorkspace: () => saveWorkspace(),
@@ -370,6 +373,7 @@ function send(m) { if (ws?.readyState === 1) ws.send(JSON.stringify(m)); }
 function onMessage(m) {
   if (m.type === 'hello') {
     home = m.home;
+    document.documentElement.dataset.os = m.platform === 'win32' ? 'win' : 'mac';
     for (const v of views.values()) v.dispose();
     views.clear(); active = null; recent.length = 0;
     while (panes.length > 1) unsplit(panes[1]);
@@ -380,6 +384,7 @@ function onMessage(m) {
   if (m.type === 'inbox') { inbox.setItems(m.items); return; }
   if (m.type === 'welcome') { setWelcomeInfo(m); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'toast') { toast(m.text); return; }
+  if (m.type === 'pick-folder') { native?.postMessage({ type: 'choose-folder', tab: m.tab, cwd: m.cwd }); return; }
   if (m.type === 'workspace-name') { // this window is saved as a named workspace and autosaves to it
     $('ws-btn').textContent = m.name ? `▤ ${m.name}` : '▤ Workspaces';
     $('ws-btn').title = (m.name ? `This window autosaves to "${m.name}". ` : '') + 'Save or reopen this window\'s tabs (⌥⌘S / ⌥⌘O)';

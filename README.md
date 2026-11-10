@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>The conversation up top. The real terminal below.</b><br>
-  A native macOS app for running several Claude Code sessions at once without losing track of any of them.
+  A desktop app (macOS and Windows) for running several Claude Code sessions at once without losing track of any of them.
 </p>
 
 ---
@@ -58,7 +58,7 @@ saved workspace, or jump into a recent folder. If Claude Code is not installed, 
 **Also:** live preview of what Claude is doing right now, a "new messages" pill when you have scrolled up,
 a warning before you quit with a task running, four themes, and drag tabs between windows.
 
-## Install
+## Install on macOS
 
 Requirements: macOS 13 or later, [Node.js](https://nodejs.org) 20+, Xcode command line tools
 (`xcode-select --install`), and [Claude Code](https://claude.com/claude-code).
@@ -82,7 +82,30 @@ npm run dist        # zip lands in dist.noindex/release/
 Without a Developer ID the result is ad-hoc signed, so the other Mac will need right-click → Open the
 first time. Set `SIGN_ID` (and `NOTARY_PROFILE`) to sign and notarize; see `scripts/build-app.sh`.
 
+## Install on Windows
+
+Download `Claude-Code-Super-UI-<version>-win-x64.exe` from this repo's Releases page (or the portable
+`.zip`) and run it. The build is not code signed yet, so SmartScreen will show "Windows protected your PC":
+choose More info → Run anyway.
+
+You need [Claude Code](https://claude.com/claude-code) installed for Windows. If it is missing, the start
+screen offers to install it.
+
+Each tab runs PowerShell (PowerShell 7 if you have it, otherwise the one that ships with Windows). App
+shortcuts use `Ctrl+Shift` where the Mac uses `⌘`, because plain `Ctrl+C` and friends belong to the
+terminal: `Ctrl+Shift+T` new tab, `Ctrl+Shift+W` close tab, `Ctrl+Shift+Z` reopen a closed tab,
+`Ctrl+Tab` next tab, `Ctrl+Shift+I` inbox, `Ctrl+Shift+\` split, `Ctrl+Shift+C` / `Ctrl+Shift+V` copy and paste.
+
+The Windows version is new. The server parts are smoke-tested on a real Windows machine on every push
+(see below), but the app as a whole has had far less use than the Mac one. Known gaps: tab labels need the
+native `claude.exe` install (not the npm one), and WSL sessions are not detected.
+
+To build it yourself, on Windows or macOS: `npm install && npm run dist:win`. The installer lands in
+`dist.noindex/electron/`.
+
 ## Shortcuts
+
+macOS:
 
 | | |
 |---|---|
@@ -120,6 +143,8 @@ Use it in a folder you could afford to lose.
 │            └── follows ~/.claude/projects/…/<session>.jsonl for the transcript
 ```
 
+- **`electron/`** The Windows host (Electron). Same job as `native/`, and it runs on macOS too
+  (`npm run electron`), which is how it gets tested without a PC.
 - **`native/`** The macOS shell: windows, menus, notifications, quit warnings. It starts the server and
   stops it when the app quits.
 - **`src/`** The server. `tab.ts` owns a shell in a pty and a headless copy of its screen. `procwatch.ts`
@@ -131,9 +156,13 @@ Development loop: `npm run build:app` once, then `⌘R` picks up changes to `pub
 `native/` need `npm run build:app` again and an app restart. `npm run dev` runs the server alone and opens
 it in a browser window.
 
+`npm run smoke` runs the server end to end against a stand-in for Claude Code: a shell starts, its folder is
+tracked, commands are typed, a running `claude` is noticed. GitHub Actions runs it on Windows on every push
+and builds the installer; pushing a tag like `v0.3.0` publishes a Release.
+
 ## Privacy
 
-Everything runs on your Mac. The server listens on `127.0.0.1` only and every connection needs a random
+Everything runs on your own computer. The server listens on `127.0.0.1` only and every connection needs a random
 per-launch token.
 
 One feature sends anything anywhere: tab labels. To write a label, the app passes a short excerpt of the
@@ -144,7 +173,6 @@ Claude account, the same place the session itself already goes. Turn it off with
 
 Version 0.2. It is used daily by its author and it is young. It reads Claude Code's screen and log format,
 neither of which is a public interface, so a Claude Code update can break a feature until this catches up.
-macOS only.
 
 This is an independent project. It is not made or endorsed by Anthropic. "Claude" and "Claude Code" are
 Anthropic's trademarks.

@@ -76,9 +76,9 @@ export function welcomeEl(view) {
   if (missing) {
     const card = h('div', 'wl-setup');
     card.append(h('b', null, 'Setup: Claude Code isn’t installed yet'),
-      h('p', null, 'This app runs Claude Code in the terminal below, so it needs to be on this Mac. ' +
+      h('p', null, 'This app runs Claude Code in the terminal below, so it needs to be on this computer. ' +
         'Install runs Anthropic’s installer in this tab’s terminal:'),
-      h('code', null, 'curl -fsSL https://claude.ai/install.sh | bash'));
+      h('code', null, info.install || 'curl -fsSL https://claude.ai/install.sh | bash'));
     const row = h('div', 'wl-row');
     row.append(btn('primary', 'Install Claude Code', null, () => act({ type: 'install-claude' })),
       btn('', 'Check again', null, () => view.send({ type: 'welcome', fresh: true })));
@@ -128,7 +128,7 @@ export function welcomeEl(view) {
     for (const r of recents) {
       const row = h('div', 'wl-recent');
       row.title = `cd ${r.cwd}`;
-      const name = h('b', null, r.cwd.split('/').pop() || '/');
+      const name = h('b', null, r.cwd.split(/[\\/]/).filter(Boolean).pop() || r.cwd);
       const go = h('button', 'wl-go', '✳ Launch');
       go.title = 'Go there and start Claude';
       go.addEventListener('click', (e) => { e.stopPropagation(); act({ type: 'cd', dir: r.cwd, launch: true }); });
@@ -140,7 +140,8 @@ export function welcomeEl(view) {
   }
 
   const foot = h('div', 'wl-foot');
-  foot.append(h('span', null, '⌘T new tab'), h('span', null, '⌘\\ split view'), h('span', null, '⌘I inbox'));
+  const k = document.documentElement.dataset.os === 'win' ? 'Ctrl+Shift+' : '⌘';
+  foot.append(h('span', null, `${k}T new tab`), h('span', null, `${k}\\ split view`), h('span', null, `${k}I inbox`));
   if (info?.claude?.version) foot.append(h('span', 'wl-ver', `Claude Code ${info.claude.version.replace(/\s*\(Claude Code\)/, '')}`));
   root.append(foot);
   return root;

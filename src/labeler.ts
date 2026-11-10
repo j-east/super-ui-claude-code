@@ -6,13 +6,14 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DATA_DIR } from './platform.js';
 import { findClaude } from './setup.js';
 import type { Entry } from './transcript.js';
 
 export interface Label { label: string; summary: string }
 interface Cached extends Label { users: number; at: number }
 
-const DIR = path.join(os.homedir(), 'Library', 'Application Support', 'claude-pane');
+const DIR = DATA_DIR;
 const FILE = path.join(DIR, 'labels.json');
 const WORK = path.join(DIR, 'labeler'); // cwd for the headless run, away from your projects
 const TIMEOUT = 60_000;
@@ -59,10 +60,11 @@ const inFlight = new Set<string>();
 
 function run(input: string): Promise<Label | null> {
   return findClaude().then((bin) => new Promise<Label | null>((res) => {
-    if (!bin) return res(null);
+    // An npm install on Windows is a .cmd wrapper; our arguments wouldn't survive the command interpreter.
+    if (!bin || /\.cmd$/i.test(bin)) return res(null);
     try { fs.mkdirSync(WORK, { recursive: true }); } catch { /* ignore */ }
     const p = spawn(bin, ['-p', '--model', 'sonnet', '--tools', '', '--no-session-persistence', '--strict-mcp-config',
-      '--setting-sources', '', '--output-format', 'json', '--system-prompt', SYSTEM], { cwd: WORK, stdio: ['pipe', 'pipe', 'ignore'] });
+      '--setting-sources', '', '--output-format', 'json', '--system-prompt', SYSTEM], { cwd: WORK, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     let out = '';
     const kill = setTimeout(() => p.kill('SIGKILL'), TIMEOUT);
     p.stdout.on('data', (d) => { out += d; });

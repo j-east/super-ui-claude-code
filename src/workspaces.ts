@@ -3,8 +3,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DATA_DIR } from './platform.js';
 
-const DIR = path.join(os.homedir(), 'Library', 'Application Support', 'claude-pane', 'workspaces');
+const DIR = path.join(DATA_DIR, 'workspaces');
 
 export interface WorkspaceTab { cwd: string; sessionId: string | null; title: string; claude: boolean }
 export interface Workspace { name: string; savedAt: string; active: number; tabs: WorkspaceTab[] }

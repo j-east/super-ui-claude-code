@@ -3,8 +3,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DATA_DIR } from './platform.js';
 
-const DIR = path.join(os.homedir(), 'Library', 'Application Support', 'claude-pane');
+const DIR = DATA_DIR;
 const FILE = path.join(DIR, 'instance.json');
 
 export function writeInstance(port: number, token: string): void {

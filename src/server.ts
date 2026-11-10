@@ -12,7 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Tab } from './tab.js';
 import { handoff, writeInstance, clearInstance } from './instance.js';
-import { welcomeInfo, INSTALL_CLAUDE } from './setup.js';
+import { welcomeInfo } from './setup.js';
+import { WIN, INSTALL_CLAUDE, shq, cdCommand } from './platform.js';
+import { stopProcHelper } from './procwatch.js';
 import { saveWorkspace, loadWorkspace, listWorkspaces, deleteWorkspace, pruneClosedWindowSaves, type WorkspaceTab } from './workspaces.js';
 
 // Works from src/ (tsx) and build/ (compiled): both sit one level below the repo root.
@@ -27,6 +29,8 @@ const autoArgs = process.argv.slice(2).filter((a) => a !== '--new' && a !== '');
 const startCwd = process.cwd();
 // Native app mode: the Swift app owns windows and our lifetime; no Chrome, no handoff, no idle exit.
 const APP_MODE = process.env.CLAUDE_PANE_APP === '1';
+// Hosted by the Electron app (Windows, or macOS for testing it): it shows the folder dialog itself.
+const HOST_DIALOGS = process.env.CLAUDE_PANE_HOST === 'electron';
 
 // ---------- static files ----------
 const VENDOR: Record<string, string> = {
@@ -215,7 +219,6 @@ function windowGone(win: string): void {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function shq(s: string): string { return /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`; }
 const asq = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
 function chooseFolder(tab: Tab): void {
@@ -224,7 +227,7 @@ function chooseFolder(tab: Tab): void {
     `(choose folder with prompt "Folder for Claude Code" default location (POSIX file ${asq(tab.cwd)}))`;
   execFile('osascript', ['-e', script], (err, stdout) => {
     const dir = stdout.trim().replace(/\/$/, '') || '/';
-    if (!err && stdout.trim()) void tab.typeCommand(`cd ${shq(dir)}`);
+    if (!err && stdout.trim()) void tab.typeCommand(cdCommand(dir));
   });
 }
 
@@ -233,7 +236,7 @@ function cdTo(tab: Tab, dir: string, launch: boolean): void {
   let ok = false;
   try { ok = path.isAbsolute(dir) && fs.statSync(dir).isDirectory(); } catch { /* gone */ }
   if (!ok) { toWindow(tab.windowId, { type: 'toast', text: 'That folder no longer exists' }); return; }
-  void tab.typeCommand(`cd ${shq(dir)}${launch ? ' && claude' : ''}`);
+  void tab.typeCommand(cdCommand(dir, launch ? 'claude' : undefined));
 }
 
 // ---------- window ----------
@@ -257,6 +260,13 @@ const server = http.createServer((req, res) => {
     const busy = [...tabs.values()].filter((t) => t.working && (!win || t.windowId === win))
       .map((t) => t.labelText || t.title);
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ busy }));
+    return;
+  }
+  if (url.pathname === '/api/quit' && req.method === 'POST') {
+    // The app is quitting. (On Windows a child can't be asked to stop with a signal, only killed.)
+    if (url.searchParams.get('t') !== token) { res.writeHead(403).end(); return; }
+    res.writeHead(200).end('bye');
+    setTimeout(shutdown, 20);
     return;
   }
   if (url.pathname === '/api/open' && req.method === 'POST') {
@@ -310,7 +320,7 @@ server.on('upgrade', (req, sock, head) => {
     for (const t of windowTabs(win)) movedFrom.delete(t.id);
     clearTimeout(windowIdle.get(win));
     windowIdle.delete(win);
-    send(ws, { type: 'hello', home: os.homedir() });
+    send(ws, { type: 'hello', home: os.homedir(), platform: process.platform });
     const mine = [...tabs.values()].filter((t) => t.windowId === win);
     for (const tab of mine) send(ws, { ...tab.snapshot(), tab: tab.id });
     send(ws, inboxMsg());
@@ -361,7 +371,10 @@ server.on('upgrade', (req, sock, head) => {
       if (tab.windowId !== win) return;
       if (m.type === 'input' && typeof m.data === 'string') tab.input(m.data);
       else if (m.type === 'resize') tab.resize(m.cols | 0, m.rows | 0);
-      else if (m.type === 'choose-folder') chooseFolder(tab);
+      else if (m.type === 'choose-folder') {
+        // The Electron host has its own folder dialog; the Mac app and a plain browser use AppleScript's.
+        if (HOST_DIALOGS) send(ws, { type: 'pick-folder', tab: tab.id, cwd: tab.cwd }); else chooseFolder(tab);
+      }
       else if (m.type === 'launch') void tab.typeCommand(m.kind === 'continue' ? 'claude -c' : m.kind === 'resume' ? 'claude --resume' : 'claude');
       else if (m.type === 'cd' && typeof m.dir === 'string') cdTo(tab, m.dir, !!m.launch);
       else if (m.type === 'install-claude') void tab.typeCommand(INSTALL_CLAUDE);
@@ -391,6 +404,7 @@ function shutdown(): void {
   const all = [...tabs.values()];
   if (worthSaving(all)) saveWorkspace({ name: 'Last session', active: 0, tabs: all.map(tabRecord) });
   for (const tab of tabs.values()) tab.dispose();
+  stopProcHelper();
   clearInstance();
   process.exit(0);
 }
@@ -418,7 +432,10 @@ async function main(): Promise<void> {
   console.log(`claude-pane: ${pageUrl()}\n[timing] listening +${since()}`);
   if (APP_MODE) {
     // The app is our parent; if it dies without stopping us, don't leave shells running.
-    setInterval(() => { if (process.ppid === 1) shutdown(); }, 2000);
+    // (Windows doesn't re-parent orphans, so there we check that the app's process is still there.)
+    const parent = process.ppid;
+    const parentGone = () => { if (!WIN) return process.ppid === 1; try { process.kill(parent, 0); return false; } catch { return true; } };
+    setInterval(() => { if (parentGone()) shutdown(); }, 2000);
   } else {
     openWindow(crypto.randomUUID());
     // Never got a window (e.g. browser failed to open): don't linger forever.

@@ -77,7 +77,7 @@ export class TabView {
     this.setActive(false);
   }
 
-  get name() { return this.cwd ? this.cwd.split('/').pop() || '/' : 'shell'; }
+  get name() { return this.cwd ? this.cwd.split(/[\\/]/).filter(Boolean).pop() || this.cwd : 'shell'; }
   /** Session summary line: Claude's AI title, else one you set, else your first message. */
   get title() { return this.mode === 'claude' || this.hasTranscript ? (this.titles.ai || this.titles.custom || this.titles.first) : ''; }
   tilde(p) { return this.home && p.startsWith(this.home) ? '~' + p.slice(this.home.length) : p; }

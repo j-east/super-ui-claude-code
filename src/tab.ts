@@ -2,6 +2,7 @@
 // attention alerts, and optional lunatic mode (auto-pick option 1 on prompts).
 import path from 'node:path';
 import { PtySession } from './session.js';
+import { WIN, CLEAR_LINE, shellCommand } from './platform.js';
 import { ProcWatch } from './procwatch.js';
 import { Screen, type Dialog } from './screen.js';
 import { cachedLabel, maybeLabel, type Label } from './labeler.js';
@@ -48,10 +49,12 @@ export class Tab {
 
   constructor(readonly id: string, public windowId: string, cwd: string, private emit: Emit) {
     this.shellCwd = cwd;
-    this.shell = new PtySession(process.env.SHELL || '/bin/zsh', ['-l'], cwd);
+    const sh = shellCommand();
+    this.shell = new PtySession(sh.file, sh.args, cwd);
     this.shell.onData((data) => {
       if (Date.now() > this.ignoreUntil) this.lastWorkAt = Date.now();
       this.screen.write(data);
+      this.watch?.feed(data);
       this.emit({ type: 'output', data });
     });
     this.watch = new ProcWatch(this.shell.pid, {
@@ -138,7 +141,13 @@ export class Tab {
       const ready = !this.watch.current() && Date.now() - this.shell.lastOutputAt >= (waitMs ? 400 : 0)
         && this.shell.lastOutputAt > 0 && (await this.watch.shellIdle());
       if (this.disposed) return false;
-      if (ready) { this.shell.write(`\x15${cmd}\r`); return true; }
+      if (ready) {
+        this.shell.write(CLEAR_LINE);
+        // PowerShell clears the line with Esc; typed straight after, the first letter would read as Alt+letter.
+        if (WIN) await new Promise((r) => setTimeout(r, 120));
+        this.shell.write(`${cmd}\r`);
+        return true;
+      }
       if (Date.now() >= deadline) break;
       await new Promise((r) => setTimeout(r, 300));
     }
