@@ -44,7 +44,10 @@ const WIN_LIST = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " +
   "Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,CommandLine | ForEach-Object { " +
   "$c = if ($_.CommandLine) { $_.CommandLine -replace '\\s+', ' ' } else { '' }; " +
   "[Console]::Out.WriteLine(\"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.Name)`t$c\") }; " +
-  "[Console]::Out.WriteLine('@@END'); [Console]::Out.Flush() }";
+  // The end marker is spelled in two halves: this script is on the helper's own command line, which is
+  // in the listing, and a literal marker there would cut every answer in two.
+  "[Console]::Out.WriteLine('@@' + 'END'); [Console]::Out.Flush() }";
+const END = /(?:^|\n)@@END\r?\n/;
 let helper: ChildProcess | null = null;
 let helperBuf = '';
 let lastRaw = ''; // head of the helper's last answer, for the debug report
@@ -57,10 +60,10 @@ function winList(): Promise<Proc[]> {
     h.stdout!.setEncoding('utf8');
     h.stdout!.on('data', (d: string) => {
       helperBuf += d;
-      for (let end = helperBuf.indexOf('@@END'); end >= 0; end = helperBuf.indexOf('@@END')) {
-        const block = helperBuf.slice(0, end);
+      for (let m = END.exec(helperBuf); m; m = END.exec(helperBuf)) {
+        const block = helperBuf.slice(0, m.index);
         lastRaw = block.slice(0, 600);
-        helperBuf = helperBuf.slice(end + 5);
+        helperBuf = helperBuf.slice(m.index + m[0].length);
         const procs = block.split(/\r?\n/).flatMap((l) => {
           const [pid, ppid, name, args] = l.split('\t');
           return pid && /^\d+$/.test(pid) ? [{ pid: Number(pid), ppid: Number(ppid), name: (name ?? '').toLowerCase(), args: args ?? '' }] : [];
