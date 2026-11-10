@@ -17,8 +17,24 @@ const home = path.join(tmp, 'home'), bin = path.join(tmp, 'bin'), work = path.jo
 for (const d of [home, bin, work]) fs.mkdirSync(d, { recursive: true });
 
 // The stand-in: a process named claude that stays up until told to stop.
-if (WIN) fs.copyFileSync(process.execPath, path.join(bin, 'claude.exe')); // node's prompt, under claude's name
-else fs.writeFileSync(path.join(bin, 'claude'), `#!${process.execPath}\nprocess.stdin.resume(); process.stdin.on('data', (d) => { if (String(d).includes('.exit')) process.exit(0); });\nconsole.log('fake claude up');\n`, { mode: 0o755 });
+// It keeps a diary, printed if a step fails. Windows: a copy of node named claude.exe behind a
+// claude.cmd, the shape of an npm install (shell -> cmd -> claude).
+const diary = path.join(tmp, 'fake-claude.log');
+const fake = path.join(bin, 'fake.js');
+fs.writeFileSync(fake, `const fs = require('fs'); const log = (m) => fs.appendFileSync(${JSON.stringify(diary)}, m + '\\n');
+log('started pid ' + process.pid + ' tty ' + !!process.stdin.isTTY);
+process.on('exit', (c) => log('exit ' + c));
+setInterval(() => {}, 1000);
+process.stdin.on('end', () => log('stdin ended'));
+process.stdin.on('error', (e) => log('stdin error ' + e));
+process.stdin.on('data', (d) => { log('data ' + JSON.stringify(String(d))); if (String(d).includes('.exit')) process.exit(0); });
+console.log('fake claude up');
+`);
+if (WIN) {
+  fs.mkdirSync(path.join(bin, 'real'));
+  fs.copyFileSync(process.execPath, path.join(bin, 'real', 'claude.exe'));
+  fs.writeFileSync(path.join(bin, 'claude.cmd'), '@"%~dp0real\\claude.exe" "%~dp0fake.js" %*\r\n');
+} else fs.writeFileSync(path.join(bin, 'claude'), `#!${process.execPath}\n` + fs.readFileSync(fake, 'utf8'), { mode: 0o755 });
 
 const PORT = '47991';
 const env = { ...process.env, HOME: home, USERPROFILE: home, APPDATA: path.join(home, 'AppData', 'Roaming'),
@@ -43,6 +59,7 @@ async function until(what, test, ms = 30_000) {
       console.log('--- messages:', JSON.stringify(msgs.filter((m) => m.type !== 'output').slice(-12), null, 1));
       console.log('--- terminal tail:', JSON.stringify(screen.slice(-1500)));
       console.log('--- server:', out.replace(/t=[0-9a-f]+/g, 't=…'));
+      try { console.log('--- fake claude diary:', fs.readFileSync(diary, 'utf8')); } catch { console.log('--- fake claude never started'); }
       try { console.log('--- detection:', await (await fetch(`http://127.0.0.1:${PORT}/api/debug?t=${token}`, { signal: AbortSignal.timeout(15_000) })).text()); } catch (e) { console.log('--- detection: unavailable', String(e)); }
       srv.kill(); process.exit(1);
     }
