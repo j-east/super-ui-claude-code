@@ -45,8 +45,9 @@ and waiting, and still working. Answer questions right there, or click a session
 **Split view.** `⌘\` or drag a tab to the right half of the window to put two sessions side by side, each
 with its own header saying which one it is.
 
-**Workspaces.** Save a window's tabs and reopen them later. Every session resumes where it left off. The
-last session is saved for you when you quit.
+**Workspaces.** Save a window's tabs under a name and reopen them later, with every session resumed where
+it left off. A saved window keeps its workspace up to date as you add and close tabs, and the last session
+is always saved for you. Closed a tab by mistake? `⌘Z` brings it back.
 
 **Alerts.** A notification and a marked tab when a session finishes or needs input. `⌘J` jumps to the next
 one waiting.
@@ -88,6 +89,7 @@ first time. Set `SIGN_ID` (and `NOTARY_PROFILE`) to sign and notarize; see `scri
 | `⌘T` / `⌘N` | New tab |
 | `⇧⌘N` | New window |
 | `⌘W` | Close tab |
+| `⌘Z` / `⇧⌘T` | Reopen the tab you just closed |
 | `⇧⌘]` / `⇧⌘[` | Next / previous tab |
 | `⌘\` | Split view |
 | `⌘I` | Inbox |

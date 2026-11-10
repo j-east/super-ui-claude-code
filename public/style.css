@@ -346,3 +346,4 @@ details.compacted .body { white-space: pre-wrap; font-size: 13px; line-height: 1
 .ib-empty { color: var(--muted); padding: 18px 0 6px; text-align: center; }
 .dlg-opt .dlg-key { font-size: 13px; }
 .dlg-opt.checked .dlg-key { color: var(--accent); }
+#ws-btn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

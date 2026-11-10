@@ -413,6 +413,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
   }
   @objc func closeWindow(_ s: Any?) { keyPane?.window.performClose(nil) }
+  @objc func reopenTab(_ s: Any?) { keyPane?.js("window.cp?.reopenTab()") }
+  /// ⌘Z: reopen the tab you last closed, unless you're typing in a text field (then it's a normal undo).
+  @objc func undoOrReopen(_ s: Any?) {
+    guard let p = keyPane else { NSApp.sendAction(Selector(("undo:")), to: nil, from: s); return }
+    p.js("window.cp && window.cp.undo ? window.cp.undo() : false") { r in
+      if (r as? Bool) != true { NSApp.sendAction(Selector(("undo:")), to: nil, from: s) }
+    }
+  }
   @objc func nextTab(_ s: Any?) { keyPane?.js("window.cp?.nextTab()") }
   @objc func toggleSplit(_ s: Any?) { keyPane?.js("window.cp?.toggleSplit()") }
   @objc func toggleInbox(_ s: Any?) { keyPane?.js("window.cp?.toggleInbox()") }
@@ -502,10 +510,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       item("Open Workspace…", #selector(openWorkspace(_:)), "o", [.command, .option]),
       .separator(),
       item("Close Tab", #selector(closeTab(_:)), "w"),
+      item("Reopen Closed Tab", #selector(reopenTab(_:)), "t", [.command, .shift]),
       item("Close Window", #selector(closeWindow(_:)), "w", [.command, .shift]),
     ])
     _ = add("Edit", [
-      item("Undo", Selector(("undo:")), "z"),
+      item("Undo / Reopen Closed Tab", #selector(undoOrReopen(_:)), "z"),
       item("Redo", Selector(("redo:")), "z", [.command, .shift]),
       .separator(),
       item("Cut", #selector(NSText.cut(_:)), "x"),

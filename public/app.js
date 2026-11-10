@@ -315,6 +315,9 @@ window.cp = {
   redraw: () => panes.forEach((p) => p.view?.redraw()),
   toggleSplit: () => split(),
   toggleInbox: () => inbox.toggle(),
+  reopenTab: () => send({ type: 'reopen-tab' }),
+  /** ⌘Z: bring back the tab you last closed. False while you're typing in a text field (then it's a normal undo). */
+  undo: () => { if (typingInField()) return false; send({ type: 'reopen-tab' }); return true; },
   saveWorkspace: () => saveWorkspace(),
   openWorkspaceMenu: () => openWsMenu(),
   /** Type text into the active tab as a paste (bracketed if the program asked for it). */
@@ -328,8 +331,14 @@ window.cp = {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) panes.forEach((p) => p.view?.redraw()); });
 
 // ---------- keyboard ----------
+/** A real text field (workspace name…), as opposed to the terminal's hidden input. */
+const typingInField = () => {
+  const a = document.activeElement;
+  return !!a && (a.tagName === 'INPUT' || (a.tagName === 'TEXTAREA' && !a.closest('.xterm')) || a.isContentEditable);
+};
 document.addEventListener('keydown', (e) => {
   if (workspaces.isOpen) return; // the modal handles its own keys
+  if (e.metaKey && !e.shiftKey && e.key === 'z' && !typingInField()) { send({ type: 'reopen-tab' }); e.preventDefault(); e.stopPropagation(); return; } // ⌘Z reopen closed tab
   if (e.metaKey && e.key === 'i') { inbox.toggle(); e.preventDefault(); e.stopPropagation(); return; } // ⌘I inbox
   if (inbox.isOpen) { if (e.key === 'Escape') { inbox.close(); e.preventDefault(); e.stopPropagation(); } return; }
   if (e.metaKey && e.key === '\\') { split(); e.preventDefault(); e.stopPropagation(); return; } // ⌘\ split / unsplit
@@ -371,6 +380,11 @@ function onMessage(m) {
   if (m.type === 'inbox') { inbox.setItems(m.items); return; }
   if (m.type === 'welcome') { setWelcomeInfo(m); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'toast') { toast(m.text); return; }
+  if (m.type === 'workspace-name') { // this window is saved as a named workspace and autosaves to it
+    $('ws-btn').textContent = m.name ? `▤ ${m.name}` : '▤ Workspaces';
+    $('ws-btn').title = (m.name ? `This window autosaves to "${m.name}". ` : '') + 'Save or reopen this window\'s tabs (⌥⌘S / ⌥⌘O)';
+    return;
+  }
   if (m.type === 'window-empty') { // last tab moved out: close this window like Chrome does
     if (native) native.postMessage({ type: 'close-window' }); else window.close();
     return;

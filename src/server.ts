@@ -74,9 +74,11 @@ function openTab(win: string, cwd: string, claudeArgs?: string[]): Tab {
   const tab: Tab = new Tab(id, win, cwd, (msg) => {
     toWindow(tab.windowId, { ...msg, tab: id });
     if (INBOX_EVENTS.has(String(msg.type))) scheduleInbox();
+    if (msg.type === 'mode' || msg.type === 'transcript-reset') scheduleAutosave(); // a session started or changed
   });
   tabs.set(id, tab);
-  tab.onExit(() => closeTab(id));
+  scheduleAutosave();
+  tab.onExit(() => closeTab(id, true));
   toWindow(win, { ...tab.snapshot(), tab: id });
   if (claudeArgs?.length) setTimeout(() => void tab.typeCommand(`claude ${claudeArgs.map(shq).join(" ")}`, 20_000), 0);
   return tab;
@@ -91,6 +93,7 @@ function moveTab(tab: Tab, to: string): void {
   if (windowHasClients(to)) movedFrom.delete(tab.id); else movedFrom.set(tab.id, from);
   toWindow(from, { type: 'tab-moved', tab: tab.id });
   scheduleInbox();
+  scheduleAutosave();
   toWindow(to, { ...tab.snapshot(), tab: tab.id });
   toWindow(to, { type: 'focus-tab', tab: tab.id });
   // Target window not connected yet (just being opened): same grace as a window that went away.
@@ -98,19 +101,70 @@ function moveTab(tab: Tab, to: string): void {
   if (!windowTabs(from).length) toWindow(from, { type: 'window-empty' });
 }
 
-function closeTab(id: string): void {
+/** Tabs you closed (newest last), so Cmd+Z can bring one back with its session resumed. */
+const closedTabs: (WorkspaceTab & { win: string })[] = [];
+
+/** `remember`: you closed it yourself (not a whole window going away), so it can be reopened. */
+function closeTab(id: string, remember = false): void {
   const tab = tabs.get(id);
   if (!tab) return;
+  if (remember) { closedTabs.push({ ...tabRecord(tab), win: tab.windowId }); if (closedTabs.length > 20) closedTabs.shift(); }
   tabs.delete(id);
+  resumeIds.delete(id);
   tab.dispose();
   toWindow(tab.windowId, { type: 'tab-closed', tab: id });
   scheduleInbox();
+  scheduleAutosave();
+}
+
+/** Open a tab for a saved record: its folder, and its Claude session resumed if it had one. */
+function restoreTab(win: string, rec: WorkspaceTab): Tab {
+  const tab = openTab(win, fs.existsSync(rec.cwd) ? rec.cwd : os.homedir());
+  // Workspace files can be edited by hand: only ever type a well-formed session id.
+  const id = typeof rec.sessionId === 'string' && UUID.test(rec.sessionId) ? rec.sessionId : null;
+  // Waits (up to 20 s) for the new tab's login shell to finish starting before typing.
+  if (id) { resumeIds.set(tab.id, id); void tab.typeCommand(`claude --resume ${id}`, 20_000); }
+  else if (rec.claude) void tab.typeCommand('claude', 20_000);
+  return tab;
+}
+
+function reopenClosedTab(win: string): void {
+  const rec = closedTabs.pop();
+  if (!rec) { toWindow(win, { type: 'toast', text: 'No closed tab to reopen' }); return; }
+  const tab = restoreTab(win, rec);
+  toWindow(win, { type: 'focus-tab', tab: tab.id });
 }
 
 // ---------- workspaces ----------
 const windowTabs = (win: string) => [...tabs.values()].filter((t) => t.windowId === win);
-const tabRecord = (t: Tab): WorkspaceTab => ({ cwd: t.cwd, sessionId: t.sessionId, title: t.title, claude: t.claudeRunning });
+// A restored tab's session id until `claude --resume` is actually up, so a save in between doesn't lose it.
+const resumeIds = new Map<string, string>();
+const tabRecord = (t: Tab): WorkspaceTab => {
+  const pending = resumeIds.get(t.id);
+  if (pending && t.sessionId) resumeIds.delete(t.id);
+  const sessionId = t.sessionId ?? pending ?? null;
+  return { cwd: t.cwd, sessionId, title: t.title, claude: t.claudeRunning || (!!pending && !t.sessionId) };
+};
 const worthSaving = (list: Tab[]) => list.some((t) => t.sessionId);
+
+// ---------- autosave ----------
+// A window you saved as (or opened from) a named workspace keeps that workspace up to date as tabs come
+// and go. "Last session" is kept current the same way, so a crash loses nothing.
+const windowWorkspace = new Map<string, string>(); // window id -> workspace it is saved as
+const AUTO_NAME = /^(Last session$|Closed window )/;
+let autosaveTimer: NodeJS.Timeout | null = null;
+function bindWorkspace(win: string, name: string): void {
+  if (AUTO_NAME.test(name)) return;
+  windowWorkspace.set(win, name);
+  toWindow(win, { type: 'workspace-name', name });
+}
+function autosave(): void {
+  autosaveTimer = null;
+  for (const [win, name] of windowWorkspace) if (windowTabs(win).length) saveWindow(win, name);
+  const all = [...tabs.values()];
+  if (worthSaving(all)) saveWorkspace({ name: 'Last session', active: 0, tabs: all.map(tabRecord) });
+}
+function scheduleAutosave(): void { autosaveTimer ??= setTimeout(autosave, 1500); }
 
 function saveWindow(win: string, name: string, activeTab?: string): void {
   const list = windowTabs(win);
@@ -129,17 +183,12 @@ function openWorkspace(win: string, name: string): string | null {
   const opened: Tab[] = [];
   for (const rec of w.tabs) {
     if (rec.sessionId && openIds.has(rec.sessionId)) continue;
-    const cwd = fs.existsSync(rec.cwd) ? rec.cwd : os.homedir();
-    const tab = openTab(win, cwd);
-    // Workspace files can be edited by hand: only ever type a well-formed session id.
-    const id = typeof rec.sessionId === 'string' && UUID.test(rec.sessionId) ? rec.sessionId : null;
-    // Waits (up to 20 s) for the new tab's login shell to finish starting before typing.
-    if (id) void tab.typeCommand(`claude --resume ${id}`, 20_000);
-    else if (rec.claude) void tab.typeCommand('claude', 20_000);
+    const tab = restoreTab(win, rec);
     opened.push(tab);
   }
   if (!opened.length) return 'Everything in that workspace is already open';
   if (replace) closeTab(replace.id);
+  bindWorkspace(win, w.name);
   const focus = opened[Math.min(w.active, opened.length - 1)] ?? opened[0]!;
   toWindow(win, { type: 'focus-tab', tab: focus.id });
   return null;
@@ -153,6 +202,7 @@ function windowGone(win: string): void {
     movedFrom.delete(t.id);
     if (from && windowHasClients(from)) moveTab(t, from);
   }
+  windowWorkspace.delete(win); // its named workspace keeps the tabs it had; closing the window doesn't empty it
   if (worthSaving(windowTabs(win))) {
     const stamp = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     saveWindow(win, `Closed window ${stamp}`);
@@ -264,6 +314,7 @@ server.on('upgrade', (req, sock, head) => {
     const mine = [...tabs.values()].filter((t) => t.windowId === win);
     for (const tab of mine) send(ws, { ...tab.snapshot(), tab: tab.id });
     send(ws, inboxMsg());
+    if (windowWorkspace.has(win)) send(ws, { type: 'workspace-name', name: windowWorkspace.get(win) });
     void welcomeInfo().then((info) => send(ws, { type: 'welcome', ...info, workspaces: listWorkspaces() }));
     if (!mine.length && !detached) {
       // New window: first ever tab starts where we were launched (and auto-runs claude args).
@@ -277,6 +328,7 @@ server.on('upgrade', (req, sock, head) => {
       if (m.type === 'list-workspaces') { send(ws, { type: 'workspaces', list: listWorkspaces() }); return; }
       if (m.type === 'save-workspace' && typeof m.name === 'string' && m.name.trim()) {
         saveWindow(win, m.name.trim(), String(m.active ?? ''));
+        bindWorkspace(win, m.name.trim());
         send(ws, { type: 'toast', text: `Saved workspace "${m.name.trim()}"` });
         send(ws, { type: 'workspaces', list: listWorkspaces() });
         return;
@@ -288,10 +340,12 @@ server.on('upgrade', (req, sock, head) => {
       }
       if (m.type === 'delete-workspace' && typeof m.name === 'string') {
         deleteWorkspace(m.name);
+        for (const [w, n] of windowWorkspace) if (n === m.name) { windowWorkspace.delete(w); toWindow(w, { type: 'workspace-name', name: null }); }
         send(ws, { type: 'workspaces', list: listWorkspaces() });
         return;
       }
       if (m.type === 'welcome') { void welcomeInfo(!!m.fresh).then((info) => send(ws, { type: 'welcome', ...info, workspaces: listWorkspaces() })); return; }
+      if (m.type === 'reopen-tab') { reopenClosedTab(win); return; }
       if (m.type === 'new-tab') {
         const from = tabs.get(String(m.from));
         const tab = openTab(win, from?.cwd ?? os.homedir());
@@ -312,7 +366,7 @@ server.on('upgrade', (req, sock, head) => {
       else if (m.type === 'cd' && typeof m.dir === 'string') cdTo(tab, m.dir, !!m.launch);
       else if (m.type === 'install-claude') void tab.typeCommand(INSTALL_CLAUDE);
       else if (m.type === 'lunatic') tab.setLunatic(!!m.on);
-      else if (m.type === 'close-tab') closeTab(tab.id);
+      else if (m.type === 'close-tab') closeTab(tab.id, true);
       else if (m.type === 'redraw') tab.redraw();
       else if (m.type === 'send-queued') tab.sendQueuedNow();
       else if (m.type === 'move-tab' && typeof m.to === 'string') moveTab(tab, m.to.slice(0, 64));
@@ -333,6 +387,7 @@ function listen(p: number): Promise<number> {
 }
 
 function shutdown(): void {
+  if (autosaveTimer) clearTimeout(autosaveTimer);
   const all = [...tabs.values()];
   if (worthSaving(all)) saveWorkspace({ name: 'Last session', active: 0, tabs: all.map(tabRecord) });
   for (const tab of tabs.values()) tab.dispose();
