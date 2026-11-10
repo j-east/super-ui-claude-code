@@ -347,3 +347,12 @@ details.compacted .body { white-space: pre-wrap; font-size: 13px; line-height: 1
 .dlg-opt .dlg-key { font-size: 13px; }
 .dlg-opt.checked .dlg-key { color: var(--accent); }
 #ws-btn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* a long run of tool calls with no text between: one short scrolling box */
+.steps { margin: 6px 0; border-left: 2px solid var(--line); padding-left: 10px; }
+.steps-head { display: block; border: 0; background: none; padding: 0 0 2px; cursor: pointer; font: inherit; font-size: 11px;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.steps-head:hover { color: var(--accent); }
+.steps-list { max-height: 148px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.steps.open .steps-list { max-height: none; }
+.steps-list > details:first-child { margin-top: 0; }

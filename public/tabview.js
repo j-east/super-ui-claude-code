@@ -2,6 +2,7 @@
 const MIN_PTY_ROWS = 12; // pty never shrinks below this; a short pane just shows the bottom rows
 // Claude gets a taller pty than a snapped pane shows, so its screen (and the live preview) keeps room.
 const MIN_CLAUDE_ROWS = 30;
+const RUN_MAX = 4; // more tool calls than this in a row collapse into a scrolling box
 
 DOMPurify.addHook('afterSanitizeAttributes', (n) => { if (n.tagName === 'A') { n.target = '_blank'; n.rel = 'noopener'; } });
 const md = (text) => DOMPurify.sanitize(marked.parse(text, { gfm: true }));
@@ -97,6 +98,8 @@ export class TabView {
     this.host.hidden = !on;
     this.updateJump();
     if (on) {
+      // Step boxes filled while this tab was hidden couldn't scroll; show their newest step now.
+      for (const l of this.logInner.querySelectorAll('.steps:not(.open) > .steps-list')) l.scrollTop = l.scrollHeight;
       this.attention = null;
       requestAnimationFrame(() => {
         this.layout();
@@ -152,6 +155,7 @@ export class TabView {
     this.liveEl.hidden = true;
     this.tools.clear();
     this.lastGroup = null;
+    this.run = null;
     this.titles = { ai: '', custom: '', first: '' };
     this.hasTranscript = entries.length > 0;
     if (!entries.length) this.logInner.append(this.emptyState());
@@ -165,7 +169,8 @@ export class TabView {
       const n = this.render(e);
       if (!n) continue;
       if (e.kind !== 'tool') this.lastGroup = null; // a message/other step ends a run of repeats
-      this.logInner.append(n);
+      if (e.kind === 'tool' || e.kind === 'thinking') this.appendStep(n);
+      else { this.run = null; this.logInner.append(n); }
     }
     if (entries.length) this.setLive('');
     // Follow only if you're at the bottom. A message you just sent brings you down (you want the reply);
@@ -178,7 +183,37 @@ export class TabView {
     }
   }
 
+  /**
+   * Tool calls and thinking with no text between them: past RUN_MAX in a row they move into one short
+   * scrolling box that follows the newest, so a long stretch of work doesn't push the conversation away.
+   */
+  appendStep(n) {
+    const run = (this.run ??= { nodes: [], box: null });
+    run.nodes.push(n);
+    if (!run.box) {
+      this.logInner.append(n);
+      if (run.nodes.length <= RUN_MAX) return;
+      const box = el('div', 'steps');
+      const head = el('button', 'steps-head');
+      head.addEventListener('click', () => { box.classList.toggle('open'); head.blur(); this.fillSteps(run); });
+      const list = el('div', 'steps-list');
+      run.nodes[0].before(box);
+      list.append(...run.nodes);
+      box.append(head, list);
+      run.box = box; run.head = head; run.list = list; run.follow = true;
+      // Scrolling up inside the box stops it following; back at its bottom it follows again.
+      list.addEventListener('scroll', () => { run.follow = list.scrollHeight - list.scrollTop - list.clientHeight < 12; });
+    } else run.list.append(n);
+    this.fillSteps(run);
+  }
+  fillSteps(run) {
+    const open = run.box.classList.contains('open');
+    run.head.textContent = `${run.nodes.length} steps · ${open ? 'collapse' : 'show all'}`;
+    if (!open && run.follow) run.list.scrollTop = run.list.scrollHeight;
+  }
+
   note(text, cls = 'note') {
+    this.run = null;
     this.logInner.querySelector('.empty, .welcome')?.remove();
     this.logInner.append(el('div', `msg ${cls}`, text));
     this.lastGroup = null;
