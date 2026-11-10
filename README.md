@@ -174,5 +174,9 @@ Claude account, the same place the session itself already goes. Turn it off with
 Version 0.2. It is used daily by its author and it is young. It reads Claude Code's screen and log format,
 neither of which is a public interface, so a Claude Code update can break a feature until this catches up.
 
+## License
+
+[MIT](LICENSE). Use it, change it, ship it; it comes with no warranty.
+
 This is an independent project. It is not made or endorsed by Anthropic. "Claude" and "Claude Code" are
 Anthropic's trademarks.

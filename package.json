@@ -68,5 +68,6 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
     }
-  }
+  },
+  "license": "MIT"
 }
