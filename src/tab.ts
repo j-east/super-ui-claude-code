@@ -154,6 +154,7 @@ export class Tab {
     this.emit({ type: 'toast', text: 'Something is running in this tab’s terminal, so nothing was typed.' });
     return false;
   }
+  debug(): Promise<Record<string, unknown>> { return this.watch.debug(); }
   get cwd(): string { return this.shellCwd; }
   get claudeRunning(): boolean { return !!this.watch.current(); }
   /** Claude is mid-task (printing), as opposed to waiting at its prompt. */

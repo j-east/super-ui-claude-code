@@ -47,6 +47,7 @@ const WIN_LIST = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " +
   "[Console]::Out.WriteLine('@@END'); [Console]::Out.Flush() }";
 let helper: ChildProcess | null = null;
 let helperBuf = '';
+let lastRaw = ''; // head of the helper's last answer, for the debug report
 let helperWaiters: { res: (p: Proc[]) => void; rej: (e: Error) => void }[] = [];
 function winList(): Promise<Proc[]> {
   if (!helper) {
@@ -58,6 +59,7 @@ function winList(): Promise<Proc[]> {
       helperBuf += d;
       for (let end = helperBuf.indexOf('@@END'); end >= 0; end = helperBuf.indexOf('@@END')) {
         const block = helperBuf.slice(0, end);
+        lastRaw = block.slice(0, 600);
         helperBuf = helperBuf.slice(end + 5);
         const procs = block.split(/\r?\n/).flatMap((l) => {
           const [pid, ppid, name, args] = l.split('\t');
@@ -161,6 +163,14 @@ export class ProcWatch {
       layer = next;
     }
     return out.filter((p) => p.name !== 'conhost.exe');
+  }
+
+  /** What this watcher currently sees (for /api/debug and the smoke test's failure report). */
+  async debug(): Promise<Record<string, unknown>> {
+    let list: Proc[] = []; let error: string | null = null;
+    try { list = await processList(true); } catch (e) { error = String(e); }
+    return { shellPid: this.shellPid, shell: list.find((p) => p.pid === this.shellPid) ?? null, cwd: this.lastCwd, claude: this.claude,
+      total: list.length, below: this.below(list), claudeLike: list.filter(isClaude), error, raw: WIN ? lastRaw : undefined };
   }
 
   /** True when nothing runs in the shell's foreground (no child process), so typing a command is safe. */

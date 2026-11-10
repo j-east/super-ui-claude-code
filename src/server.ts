@@ -262,6 +262,14 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ busy }));
     return;
   }
+  if (url.pathname === '/api/debug') {
+    // What process detection sees for each tab (support, and the smoke test's failure report).
+    if (url.searchParams.get('t') !== token) { res.writeHead(403).end(); return; }
+    void Promise.all([...tabs.values()].map(async (t) => ({ tab: t.id, ...(await t.debug()) }))).then((d) => {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(d, null, 1));
+    });
+    return;
+  }
   if (url.pathname === '/api/quit' && req.method === 'POST') {
     // The app is quitting. (On Windows a child can't be asked to stop with a signal, only killed.)
     if (url.searchParams.get('t') !== token) { res.writeHead(403).end(); return; }

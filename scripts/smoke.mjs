@@ -32,6 +32,7 @@ srv.stderr.on('data', (d) => { out += d; });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const msgs = [];
 let screen = '';
+let token = '';
 async function until(what, test, ms = 30_000) {
   const t0 = Date.now();
   for (;;) {
@@ -42,6 +43,7 @@ async function until(what, test, ms = 30_000) {
       console.log('--- messages:', JSON.stringify(msgs.filter((m) => m.type !== 'output').slice(-12), null, 1));
       console.log('--- terminal tail:', JSON.stringify(screen.slice(-1500)));
       console.log('--- server:', out.replace(/t=[0-9a-f]+/g, 't=…'));
+      try { console.log('--- detection:', await (await fetch(`http://127.0.0.1:${PORT}/api/debug?t=${token}`, { signal: AbortSignal.timeout(15_000) })).text()); } catch (e) { console.log('--- detection: unavailable', String(e)); }
       srv.kill(); process.exit(1);
     }
     await wait(100);
@@ -49,7 +51,7 @@ async function until(what, test, ms = 30_000) {
 }
 
 await until('server is listening', () => out.match(/t=([0-9a-f]+)/));
-const token = out.match(/t=([0-9a-f]+)/)[1];
+token = out.match(/t=([0-9a-f]+)/)[1];
 const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws?t=${token}&w=smoke`, { origin: `http://127.0.0.1:${PORT}` });
 ws.on('message', (raw) => { const m = JSON.parse(String(raw)); msgs.push(m); if (m.type === 'output') screen += m.data; });
 await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
