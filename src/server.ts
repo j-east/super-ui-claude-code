@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Tab } from './tab.js';
 import { handoff, writeInstance, clearInstance } from './instance.js';
+import { welcomeInfo, INSTALL_CLAUDE } from './setup.js';
 import { saveWorkspace, loadWorkspace, listWorkspaces, deleteWorkspace, pruneClosedWindowSaves, type WorkspaceTab } from './workspaces.js';
 
 // Works from src/ (tsx) and build/ (compiled): both sit one level below the repo root.
@@ -177,6 +178,14 @@ function chooseFolder(tab: Tab): void {
   });
 }
 
+/** Welcome screen: go to one of the recent folders (and optionally start Claude there). */
+function cdTo(tab: Tab, dir: string, launch: boolean): void {
+  let ok = false;
+  try { ok = path.isAbsolute(dir) && fs.statSync(dir).isDirectory(); } catch { /* gone */ }
+  if (!ok) { toWindow(tab.windowId, { type: 'toast', text: 'That folder no longer exists' }); return; }
+  void tab.typeCommand(`cd ${shq(dir)}${launch ? ' && claude' : ''}`);
+}
+
 // ---------- window ----------
 let port = 0;
 const pageUrl = (win?: string) => `http://127.0.0.1:${port}/?t=${token}${win ? `&w=${win}` : ''}`;
@@ -255,6 +264,7 @@ server.on('upgrade', (req, sock, head) => {
     const mine = [...tabs.values()].filter((t) => t.windowId === win);
     for (const tab of mine) send(ws, { ...tab.snapshot(), tab: tab.id });
     send(ws, inboxMsg());
+    void welcomeInfo().then((info) => send(ws, { type: 'welcome', ...info }));
     if (!mine.length && !detached) {
       // New window: first ever tab starts where we were launched (and auto-runs claude args).
       const cwd = pendingCwd.get(win) ?? (firstTab ? startCwd : os.homedir());
@@ -281,6 +291,7 @@ server.on('upgrade', (req, sock, head) => {
         send(ws, { type: 'workspaces', list: listWorkspaces() });
         return;
       }
+      if (m.type === 'welcome') { void welcomeInfo(!!m.fresh).then((info) => send(ws, { type: 'welcome', ...info })); return; }
       if (m.type === 'new-tab') {
         const from = tabs.get(String(m.from));
         const tab = openTab(win, from?.cwd ?? os.homedir());
@@ -297,7 +308,9 @@ server.on('upgrade', (req, sock, head) => {
       if (m.type === 'input' && typeof m.data === 'string') tab.input(m.data);
       else if (m.type === 'resize') tab.resize(m.cols | 0, m.rows | 0);
       else if (m.type === 'choose-folder') chooseFolder(tab);
-      else if (m.type === 'launch') void tab.typeCommand(m.kind === 'continue' ? 'claude -c' : 'claude');
+      else if (m.type === 'launch') void tab.typeCommand(m.kind === 'continue' ? 'claude -c' : m.kind === 'resume' ? 'claude --resume' : 'claude');
+      else if (m.type === 'cd' && typeof m.dir === 'string') cdTo(tab, m.dir, !!m.launch);
+      else if (m.type === 'install-claude') void tab.typeCommand(INSTALL_CLAUDE);
       else if (m.type === 'lunatic') tab.setLunatic(!!m.on);
       else if (m.type === 'close-tab') closeTab(tab.id);
       else if (m.type === 'redraw') tab.redraw();

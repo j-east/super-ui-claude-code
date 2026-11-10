@@ -2,10 +2,11 @@
 // headless `claude -p` run on Sonnet (no tools, no MCP, no saved session) from an excerpt of the
 // transcript. Labels are cached per session id, so reopening a tab doesn't run it again.
 // Set CLAUDE_PANE_NO_LABELS=1 to turn this off.
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { findClaude } from './setup.js';
 import type { Entry } from './transcript.js';
 
 export interface Label { label: string; summary: string }
@@ -33,25 +34,6 @@ const save = () => {
 export function cachedLabel(sessionId: string | null): Label | null {
   const c = sessionId ? cache[sessionId] : undefined;
   return c ? { label: c.label, summary: c.summary } : null;
-}
-
-// ---------- finding claude ----------
-let claudeBin: Promise<string | null> | null = null;
-function findClaude(): Promise<string | null> {
-  claudeBin ??= (async () => {
-    const home = os.homedir();
-    for (const p of [`${home}/.local/bin/claude`, `${home}/.claude/local/claude`, '/opt/homebrew/bin/claude', '/usr/local/bin/claude']) {
-      try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* next */ }
-    }
-    // Wherever your shell finds it (nvm, volta, …).
-    return new Promise<string | null>((res) => {
-      execFile(process.env.SHELL || '/bin/zsh', ['-lic', 'command -v claude'], { timeout: 10_000 }, (_e, out) => {
-        const line = String(out ?? '').split('\n').map((l) => l.trim()).reverse().find((l) => l.startsWith('/'));
-        res(line ?? null);
-      });
-    });
-  })();
-  return claudeBin;
 }
 
 // ---------- excerpt ----------

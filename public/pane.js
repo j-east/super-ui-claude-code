@@ -123,7 +123,8 @@ export class Pane {
   /** Launcher bar and status strip for the tab shown here. */
   update() {
     const v = this.view;
-    this.launcherEl.hidden = !v || v.mode !== 'shell';
+    // The start screen has these buttons itself; the bar is for a shell tab that still shows an old transcript.
+    this.launcherEl.hidden = !v || v.mode !== 'shell' || !v.hasTranscript;
     this.el.classList.toggle('lunatic', !!v?.lunatic);
     // Split view: a header saying which session this half is (the auto label and its sentence).
     const labelled = v && (v.mode === 'claude' || v.hasTranscript) ? v.label : null;

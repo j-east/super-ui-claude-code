@@ -22,6 +22,7 @@ function highlight(code) {
 }
 
 import { dialogCard } from './dialogcard.js';
+import { welcomeEl } from './welcome.js';
 
 export class TabView {
   /** `pane`: where it starts out mounted (hidden); `mount()` moves it to another pane of a split. */
@@ -113,7 +114,8 @@ export class TabView {
     this.send({ type: 'redraw' });
   }
 
-  scrollToBottom() { if (this.active) this.logEl.scrollTop = this.logEl.scrollHeight; }
+  scrollToBottom() { if (this.active) this.logEl.scrollTop = this.showsWelcome ? 0 : this.logEl.scrollHeight; }
+  get showsWelcome() { return !this.hasTranscript && this.mode === 'shell'; }
   atBottom() { return this.logEl.scrollHeight - this.logEl.scrollTop - this.logEl.clientHeight < 8; }
 
   setPinned(on) {
@@ -158,7 +160,7 @@ export class TabView {
   }
 
   append(entries) {
-    if (entries.length) { this.logInner.querySelector('.empty, .hint')?.remove(); this.hasTranscript = true; }
+    if (entries.length) { this.logInner.querySelector('.empty, .welcome')?.remove(); this.hasTranscript = true; }
     for (const e of entries) {
       const n = this.render(e);
       if (!n) continue;
@@ -177,7 +179,7 @@ export class TabView {
   }
 
   note(text, cls = 'note') {
-    this.logInner.querySelector('.empty, .hint')?.remove();
+    this.logInner.querySelector('.empty, .welcome')?.remove();
     this.logInner.append(el('div', `msg ${cls}`, text));
     this.lastGroup = null;
     if (this.pinned) this.scrollToBottom();
@@ -284,17 +286,21 @@ export class TabView {
   }
 
   setMode(mode, cwd) {
-    const changed = mode !== this.mode;
+    const changed = mode !== this.mode || cwd !== this.cwd;
     this.mode = mode; this.cwd = cwd;
-    if (changed && !this.hasTranscript) this.logInner.replaceChildren(this.emptyState());
+    if (changed) this.refreshEmpty();
+  }
+
+  /** Redraw the start screen (folder changed, or setup info arrived) if that's what this tab shows. */
+  refreshEmpty() {
+    if (this.hasTranscript) return;
+    this.logInner.replaceChildren(this.emptyState());
+    if (this.mode === 'shell') this.logEl.scrollTop = 0;
   }
 
   emptyState() {
     if (this.mode === 'claude') return el('div', 'empty', 'Waiting for the first message…');
-    const n = el('div', 'hint');
-    n.innerHTML = 'Pick a folder with <b>Choose folder…</b>, or use <kbd>cd</kbd> / <kbd>ls</kbd> in the terminal below.<br>' +
-      'Then hit <b>Launch Claude</b> or type <kbd>claude</kbd>.';
-    return n;
+    return welcomeEl(this);
   }
 
   pendingTool() { return [...this.tools.values()].reverse().find((t) => !t.done) ?? null; }
