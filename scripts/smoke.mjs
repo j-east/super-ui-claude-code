@@ -11,7 +11,8 @@ import WebSocket from 'ws';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WIN = process.platform === 'win32';
-const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cp-smoke-')));
+// .native: Windows hands out short names (RUNNER~1) for the temp folder; the shell reports the long one.
+const tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cp-smoke-')));
 const home = path.join(tmp, 'home'), bin = path.join(tmp, 'bin'), work = path.join(tmp, 'my work');
 for (const d of [home, bin, work]) fs.mkdirSync(d, { recursive: true });
 
