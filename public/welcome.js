@@ -11,6 +11,8 @@ const h = (tag, cls, text) => {
 /** Latest answer from the server: { claude: {path, version} | null, recents: [{cwd, at}] }; null until it arrives. */
 let info = null;
 export const setWelcomeInfo = (i) => { info = i; };
+/** Saved workspaces changed (one was saved or deleted). */
+export const setWelcomeWorkspaces = (list) => { if (info) info.workspaces = list; };
 
 // The app in miniature: transcript on top, terminal below, and a spark for Claude.
 const HERO = `
@@ -94,9 +96,30 @@ export function welcomeEl(view) {
   main.append(
     btn(missing ? '' : 'primary', '✳ Launch Claude', 'runs claude here', () => act({ type: 'launch', kind: 'new' })),
     btn('', 'Choose folder…', 'runs cd for you', () => view.send({ type: 'choose-folder' })),
-    btn('', 'Continue last', 'claude -c', () => act({ type: 'launch', kind: 'continue' })),
     btn('', 'Resume…', 'pick an old session', () => act({ type: 'launch', kind: 'resume' })));
   root.append(main);
+
+  // Saved workspaces first: reopening one resumes every session in it.
+  const saved = info?.workspaces ?? [];
+  if (saved.length) {
+    const box = h('div', 'wl-recents');
+    box.append(h('div', 'wl-h', 'Workspaces'));
+    for (const w of saved.slice(0, 5)) {
+      const row = h('div', 'wl-recent');
+      const titles = w.titles.filter(Boolean).join(' · ');
+      row.title = `Reopen ${w.tabs} tab${w.tabs === 1 ? '' : 's'} and resume their sessions` + (titles ? `:\n${w.titles.filter(Boolean).join('\n')}` : '');
+      row.append(h('b', null, w.name), h('span', 'wl-rpath wl-titles', `${w.tabs} tab${w.tabs === 1 ? '' : 's'}${titles ? ' · ' + titles : ''}`),
+        h('span', 'wl-ago', ago(Date.parse(w.savedAt))));
+      row.addEventListener('click', () => view.send({ type: 'open-workspace', name: w.name }));
+      box.append(row);
+    }
+    if (saved.length > 5) {
+      const more = h('button', 'wl-link wl-more', `All ${saved.length} workspaces…`);
+      more.addEventListener('click', () => window.cp?.openWorkspaceMenu());
+      box.append(more);
+    }
+    root.append(box);
+  }
 
   const recents = (info?.recents ?? []).filter((r) => r.cwd !== view.cwd);
   if (recents.length) {
@@ -117,9 +140,7 @@ export function welcomeEl(view) {
   }
 
   const foot = h('div', 'wl-foot');
-  const ws = h('button', 'wl-link', '▤ Open a saved workspace');
-  ws.addEventListener('click', () => window.cp?.openWorkspaceMenu());
-  foot.append(ws, h('span', null, '⌘T new tab'), h('span', null, '⌘\\ split view'), h('span', null, '⌘I inbox'));
+  foot.append(h('span', null, '⌘T new tab'), h('span', null, '⌘\\ split view'), h('span', null, '⌘I inbox'));
   if (info?.claude?.version) foot.append(h('span', 'wl-ver', `Claude Code ${info.claude.version.replace(/\s*\(Claude Code\)/, '')}`));
   root.append(foot);
   return root;

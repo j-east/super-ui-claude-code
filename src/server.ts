@@ -264,7 +264,7 @@ server.on('upgrade', (req, sock, head) => {
     const mine = [...tabs.values()].filter((t) => t.windowId === win);
     for (const tab of mine) send(ws, { ...tab.snapshot(), tab: tab.id });
     send(ws, inboxMsg());
-    void welcomeInfo().then((info) => send(ws, { type: 'welcome', ...info }));
+    void welcomeInfo().then((info) => send(ws, { type: 'welcome', ...info, workspaces: listWorkspaces() }));
     if (!mine.length && !detached) {
       // New window: first ever tab starts where we were launched (and auto-runs claude args).
       const cwd = pendingCwd.get(win) ?? (firstTab ? startCwd : os.homedir());
@@ -291,7 +291,7 @@ server.on('upgrade', (req, sock, head) => {
         send(ws, { type: 'workspaces', list: listWorkspaces() });
         return;
       }
-      if (m.type === 'welcome') { void welcomeInfo(!!m.fresh).then((info) => send(ws, { type: 'welcome', ...info })); return; }
+      if (m.type === 'welcome') { void welcomeInfo(!!m.fresh).then((info) => send(ws, { type: 'welcome', ...info, workspaces: listWorkspaces() })); return; }
       if (m.type === 'new-tab') {
         const from = tabs.get(String(m.from));
         const tab = openTab(win, from?.cwd ?? os.homedir());

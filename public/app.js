@@ -2,7 +2,7 @@
 import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
 import { TabView } from './tabview.js';
 import { initWorkspaces } from './workspaces.js';
-import { setWelcomeInfo } from './welcome.js';
+import { setWelcomeInfo, setWelcomeWorkspaces } from './welcome.js';
 import { attachTabDrag, isDragging, consumeDragClick, endDrag } from './tabdrag.js';
 import { Pane } from './pane.js';
 import { initInbox } from './inbox.js';
@@ -367,7 +367,7 @@ function onMessage(m) {
     panes[0].clear();
     return;
   }
-  if (m.type === 'workspaces') { workspaces.setList(m.list); return; }
+  if (m.type === 'workspaces') { workspaces.setList(m.list); setWelcomeWorkspaces(m.list); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'inbox') { inbox.setItems(m.items); return; }
   if (m.type === 'welcome') { setWelcomeInfo(m); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'toast') { toast(m.text); return; }

@@ -51,8 +51,8 @@ last session is saved for you when you quit.
 **Alerts.** A notification and a marked tab when a session finishes or needs input. `⌘J` jumps to the next
 one waiting.
 
-**A start screen.** New tabs open on a launcher: start Claude, pick a folder, continue or resume a session,
-or jump into a recent folder. If Claude Code is not installed, a setup card offers to install it.
+**A start screen.** New tabs open on a launcher: start Claude, pick a folder, resume a session, reopen a
+saved workspace, or jump into a recent folder. If Claude Code is not installed, a setup card offers to install it.
 
 **Also:** live preview of what Claude is doing right now, a "new messages" pill when you have scrolled up,
 a warning before you quit with a task running, four themes, and drag tabs between windows.

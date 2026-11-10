@@ -154,6 +154,8 @@ details.tool { counter-reset: call; }
 .wl-foot { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; align-items: center;
   font-size: 12px; color: var(--muted); padding-bottom: 8px; }
 .wl-link { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+.wl-titles { font-family: inherit; font-size: 13px; }
+.wl-more { margin: 4px 10px; font-size: 12px; }
 .wl-link:hover { text-decoration: underline; }
 
 /* live preview mirrored from the terminal while Claude works */
