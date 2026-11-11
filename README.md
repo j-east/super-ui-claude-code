@@ -60,6 +60,16 @@ a warning before you quit with a task running, four themes, and drag tabs betwee
 
 ## Install on macOS
 
+Apple Silicon Macs (macOS 13 or later): download `Claude-Code-Super-UI-<version>-mac-arm64.zip` from the
+[latest release](https://github.com/j-east/super-ui-claude-code/releases/latest), unzip it and drag the app
+to Applications. Everything is bundled; you only need [Claude Code](https://claude.com/claude-code).
+
+The build is not notarized yet, so macOS will refuse to open it the first time. Either go to System
+Settings → Privacy & Security and click Open Anyway, or run
+`xattr -dr com.apple.quarantine "/Applications/Claude Code Super UI.app"` once.
+
+### Build from source
+
 Requirements: macOS 13 or later, [Node.js](https://nodejs.org) 20+, Xcode command line tools
 (`xcode-select --install`), and [Claude Code](https://claude.com/claude-code).
 
