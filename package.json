@@ -1,6 +1,8 @@
 {
   "name": "claude-pane",
-  "version": "0.2.0",
+  "version": "0.3.0",
+  "repository": { "type": "git", "url": "git+https://github.com/j-east/super-ui-claude-code.git" },
+  "homepage": "https://github.com/j-east/super-ui-claude-code#readme",
   "private": true,
   "type": "module",
   "description": "Claude Code Super UI: rendered transcript on top, live terminal below",

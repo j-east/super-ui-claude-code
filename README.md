@@ -64,8 +64,8 @@ Requirements: macOS 13 or later, [Node.js](https://nodejs.org) 20+, Xcode comman
 (`xcode-select --install`), and [Claude Code](https://claude.com/claude-code).
 
 ```sh
-git clone <this repo> claude-pane
-cd claude-pane
+git clone https://github.com/j-east/super-ui-claude-code.git
+cd super-ui-claude-code
 npm install
 npm run build:app
 ```
@@ -84,8 +84,8 @@ first time. Set `SIGN_ID` (and `NOTARY_PROFILE`) to sign and notarize; see `scri
 
 ## Install on Windows
 
-Download `Claude-Code-Super-UI-<version>-win-x64.exe` from this repo's Releases page (or the portable
-`.zip`) and run it. The build is not code signed yet, so SmartScreen will show "Windows protected your PC":
+Download `Claude-Code-Super-UI-<version>-win-x64.exe` from the
+[latest release](https://github.com/j-east/super-ui-claude-code/releases/latest) (or the portable `.zip`) and run it. The build is not code signed yet, so SmartScreen will show "Windows protected your PC":
 choose More info → Run anyway.
 
 You need [Claude Code](https://claude.com/claude-code) installed for Windows. If it is missing, the start
@@ -171,8 +171,9 @@ Claude account, the same place the session itself already goes. Turn it off with
 
 ## Status
 
-Version 0.2. It is used daily by its author and it is young. It reads Claude Code's screen and log format,
+Version 0.3. It is used daily by its author and it is young. It reads Claude Code's screen and log format,
 neither of which is a public interface, so a Claude Code update can break a feature until this catches up.
+The Windows version is experimental. Found a bug? [Open an issue](https://github.com/j-east/super-ui-claude-code/issues).
 
 ## License
 
