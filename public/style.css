@@ -11,16 +11,22 @@ body { display: flex; flex-direction: column; overflow: hidden;
   font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
 button, select { font: inherit; font-size: 13px; color: var(--text); }
 
-/* tab bar */
+/* top bar and the tab list on the left */
 #tabbar { flex: 0 0 38px; display: flex; align-items: center; gap: 4px; padding: 0 8px;
   background: var(--panel); border-bottom: 1px solid var(--line); }
-#tabs { display: flex; gap: 4px; overflow-x: auto; min-width: 0; }
-.tab { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 6px 0 10px; border-radius: 7px;
-  cursor: pointer; font-size: 13px; color: var(--muted); white-space: nowrap; max-width: 260px; }
+#main { flex: 1 1 auto; display: flex; min-height: 0; }
+#sidebar { flex: 0 0 232px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
+#tabs { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; padding: 8px 6px; }
+.tab { display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 5px 4px 5px 10px; border-radius: 7px;
+  cursor: pointer; font-size: 13px; line-height: 1.3; color: var(--muted); white-space: nowrap; }
 .tab:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
 .tab.active { background: var(--bg); color: var(--text); box-shadow: 0 0 0 1px var(--line); }
 .tab.attn { color: var(--text); }
-.tname { overflow: hidden; text-overflow: ellipsis; }
+.ttext { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tname, .tsub { overflow: hidden; text-overflow: ellipsis; }
+.tsub { font-size: 11.5px; opacity: .7; }
+.tclose { visibility: hidden; }
+.tab:hover .tclose { visibility: visible; }
 .tdot { width: 7px; height: 7px; border-radius: 50%; background: color-mix(in srgb, var(--muted) 45%, transparent); flex: none; }
 .tdot.busy { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 .tdot.done { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 30%, transparent); }
@@ -28,7 +34,18 @@ button, select { font: inherit; font-size: 13px; color: var(--text); }
   animation: pulse 0.9s ease-in-out 8; } /* pulse a few times, then stay lit (no endless repaint) */
 .tclose { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 4px; border-radius: 4px; line-height: 1.2; }
 .tclose:hover { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--text); }
-#new-tab { border: 0; background: none; color: var(--muted); font-size: 18px; cursor: pointer; width: 28px; height: 28px; border-radius: 7px; }
+#new-tab { flex: none; margin: 6px; border: 0; background: none; color: var(--muted); cursor: pointer; height: 30px; border-radius: 7px; text-align: left; padding: 0 10px; white-space: nowrap; overflow: hidden; }
+.nt-plus { font-size: 16px; }
+#side-btn { border: 0; background: none; color: var(--muted); cursor: pointer; width: 28px; height: 28px; border-radius: 7px; font-size: 15px; }
+#side-btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+#bar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); }
+/* collapsed: a rail of status dots */
+body.side-collapsed #sidebar { flex-basis: 40px; }
+body.side-collapsed #tabs { padding: 8px 4px; }
+body.side-collapsed .tab { justify-content: center; padding: 0; height: 30px; }
+body.side-collapsed .ttext, body.side-collapsed .tclose, body.side-collapsed .nt-text { display: none; }
+body.side-collapsed #new-tab { margin: 6px 4px; padding: 0; text-align: center; }
+body:not(.side-collapsed) #bar-title { display: none; }
 #new-tab:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .spacer { flex: 1; }
 #theme { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
@@ -263,7 +280,7 @@ details.compacted .body { white-space: pre-wrap; font-size: 13px; line-height: 1
 
 
 /* Panes: one column, or two side by side when split */
-#panes { flex: 1 1 auto; display: flex; min-height: 0; position: relative; }
+#panes { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; position: relative; }
 .pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; position: relative; --term-h: 260px; }
 .pane + .pane { border-left: 1px solid var(--line); }
 #panes.split .pane:not(.focused) { --pane-dim: 1; }
@@ -286,8 +303,8 @@ details.compacted .body { white-space: pre-wrap; font-size: 13px; line-height: 1
 #panes.split .pane.focused .pane-head { box-shadow: inset 0 -2px 0 var(--accent); }
 #panes.split .pane.focused .ph-label { color: var(--accent); }
 
-/* Tab bar: scrolls sideways with the wheel when tabs don't fit; thin, unobtrusive scrollbar */
-#tabs { scrollbar-width: none; flex: 0 1 auto; }
+/* Tab list: no visible scrollbar */
+#tabs { scrollbar-width: none; }
 #tabs::-webkit-scrollbar { display: none; }
 .tab { flex: none; }
 

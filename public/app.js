@@ -131,8 +131,13 @@ function renderTabs() {
     const dot = document.createElement('span');
     dot.className = 'tdot' + (v.busy ? ' busy' : '') + (v.attention === 'input' ? ' input' : v.attention ? ' done' : '');
     const name = document.createElement('span');
-    name.className = 'tname';
-    name.textContent = (v.mode === 'claude' ? '✳ ' : '') + (tabLabel(v) || v.title || v.name) + (v.lunatic ? ' 🌀' : '');
+    name.className = 'ttext';
+    const main = document.createElement('span');
+    main.className = 'tname';
+    const head = tabLabel(v) || v.title || v.name;
+    main.textContent = (v.mode === 'claude' ? '✳ ' : '') + head + (v.lunatic ? ' 🌀' : '');
+    name.append(main);
+    if (head !== v.name) { const sub = document.createElement('span'); sub.className = 'tsub'; sub.textContent = v.name; name.append(sub); }
     const close = document.createElement('button');
     close.className = 'tclose'; close.textContent = '×'; close.title = 'Close tab (ends its shell)';
     close.onclick = (e) => { e.stopPropagation(); send({ type: 'close-tab', tab: v.id }); };
@@ -143,6 +148,7 @@ function renderTabs() {
     box.append(t);
   }
   box.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  $('bar-title').textContent = active ? (tabLabel(active) || active.title || active.name) : '';
   $('no-tabs').hidden = views.size > 0;
   for (const p of panes) p.update();
   const waiting = [...views.values()].filter((v) => v.attention).length;
@@ -175,8 +181,9 @@ function showTabCard(t, v, n) {
     tabCard.append(row('tc-meta', `${state} · ${v.tilde(v.cwd)}${n <= 9 ? ` · ⌘${n}` : ''}`));
     tabCard.hidden = false;
     const r = t.getBoundingClientRect();
-    tabCard.style.top = r.bottom + 6 + 'px';
-    tabCard.style.left = Math.max(6, Math.min(r.left, innerWidth - tabCard.offsetWidth - 6)) + 'px';
+    // Beside the tab list, level with the tab.
+    tabCard.style.left = r.right + 8 + 'px';
+    tabCard.style.top = Math.max(6, Math.min(r.top, innerHeight - tabCard.offsetHeight - 6)) + 'px';
   }, 350);
 }
 function hideTabCard() { clearTimeout(cardTimer); tabCard.hidden = true; }
@@ -240,13 +247,16 @@ $('new-tab').onclick = () => send({ type: 'new-tab', from: active?.id });
 $('no-tabs-new').onclick = () => send({ type: 'new-tab' });
 
 $('split-btn').onclick = () => split();
-// Too many tabs to fit: the mouse wheel scrolls the tab bar sideways (like VS Code).
-$('tabs').addEventListener('wheel', (e) => {
-  const box = $('tabs');
-  if (box.scrollWidth <= box.clientWidth) return;
-  box.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-  e.preventDefault();
-}, { passive: false });
+// The tab list on the left collapses to a rail of status dots.
+function setSidebar(collapsed) {
+  document.body.classList.toggle('side-collapsed', collapsed);
+  try { localStorage.setItem('sideCollapsed', collapsed ? '1' : '0'); } catch { /* private mode */ }
+  hideTabCard();
+  requestAnimationFrame(() => { for (const p of panes) p.view?.layout(); });
+}
+const toggleSidebar = () => setSidebar(!document.body.classList.contains('side-collapsed'));
+$('side-btn').onclick = toggleSidebar;
+document.body.classList.toggle('side-collapsed', localStorage.getItem('sideCollapsed') === '1');
 
 // ---------- alerts ----------
 document.addEventListener('click', () => {
@@ -344,6 +354,7 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey && !e.shiftKey && e.key === 'z' && !typingInField()) { send({ type: 'reopen-tab' }); e.preventDefault(); e.stopPropagation(); return; } // ⌘Z reopen closed tab
   if (e.metaKey && e.key === 'i') { inbox.toggle(); e.preventDefault(); e.stopPropagation(); return; } // ⌘I inbox
   if (inbox.isOpen) { if (e.key === 'Escape') { inbox.close(); e.preventDefault(); e.stopPropagation(); } return; }
+  if (e.metaKey && !e.shiftKey && e.key === 'b' && !typingInField()) { toggleSidebar(); e.preventDefault(); e.stopPropagation(); return; } // ⌘B tab list
   if (e.metaKey && e.key === '\\') { split(); e.preventDefault(); e.stopPropagation(); return; } // ⌘\ split / unsplit
   if (e.metaKey && /^[1-9]$/.test(e.key)) {          // ⌘1..9: switch tab
     const v = [...views.values()][Number(e.key) - 1];
@@ -352,6 +363,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.ctrlKey && e.shiftKey && !e.metaKey) {
     const k = e.key.toLowerCase();
+    if (k === 'b') { toggleSidebar(); e.preventDefault(); e.stopPropagation(); return; }
     if (k === 't') { send({ type: 'new-tab', from: active?.id }); e.preventDefault(); e.stopPropagation(); return; }
     if (k === 'a') { jumpToAttention(); e.preventDefault(); e.stopPropagation(); return; }
   }

@@ -32,8 +32,9 @@ type in it whenever you like. While Claude runs it shrinks to just the input box
 there is a dialog to see. Drag the divider to take over, double-click it to hand control back.
 
 **Tabs that say what they are.** Each session gets a three to five word label and a one sentence summary,
-written by a small headless `claude -p` run on Sonnet. Hover a tab for the summary, folder and state. The
-tab bar scrolls with the mouse wheel when you have more tabs than room.
+written by a small headless `claude -p` run on Sonnet. Tabs live in a list down the left side,
+each with its label and folder; hover one for the summary and state. `⌘B` collapses the list to a rail of
+status dots.
 
 **Question cards.** When Claude asks you something (a permission prompt, a multiple choice question, a
 multi-select with several steps) the whole question appears as a card under the transcript, with every
@@ -104,7 +105,7 @@ screen offers to install it.
 Each tab runs PowerShell (PowerShell 7 if you have it, otherwise the one that ships with Windows). App
 shortcuts use `Ctrl+Shift` where the Mac uses `⌘`, because plain `Ctrl+C` and friends belong to the
 terminal: `Ctrl+Shift+T` new tab, `Ctrl+Shift+W` close tab, `Ctrl+Shift+Z` reopen a closed tab,
-`Ctrl+Tab` next tab, `Ctrl+Shift+I` inbox, `Ctrl+Shift+\` split, `Ctrl+Shift+C` / `Ctrl+Shift+V` copy and paste.
+`Ctrl+Tab` next tab, `Ctrl+Shift+I` inbox, `Ctrl+Shift+B` tab list, `Ctrl+Shift+\` split, `Ctrl+Shift+C` / `Ctrl+Shift+V` copy and paste.
 
 The Windows version is new. The server parts are smoke-tested on a real Windows machine on every push
 (see below), but the app as a whole has had far less use than the Mac one. Known gaps: tab labels need the
@@ -128,6 +129,7 @@ macOS:
 | `⌘W` | Close tab |
 | `⌘Z` / `⇧⌘T` | Reopen the tab you just closed |
 | `⇧⌘]` / `⇧⌘[` | Next / previous tab |
+| `⌘B` | Show / hide the tab list |
 | `⌘\` | Split view |
 | `⌘I` | Inbox |
 | `⌘J` | Jump to a tab that is waiting on you |
@@ -185,7 +187,7 @@ Claude account, the same place the session itself already goes. Turn it off with
 
 ## Status
 
-Version 0.3. It is used daily by its author and it is young. It reads Claude Code's screen and log format,
+Version 0.4. It is used daily by its author and it is young. It reads Claude Code's screen and log format,
 neither of which is a public interface, so a Claude Code update can break a feature until this catches up.
 The Windows version is experimental. Found a bug? [Open an issue](https://github.com/j-east/super-ui-claude-code/issues).
 

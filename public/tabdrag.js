@@ -1,11 +1,11 @@
-// Dragging tabs in the tab bar: reorder within the bar, or pull one out (down past the bar or
-// outside the window) to move it to another window / a new window, like Chrome.
+// Dragging tabs in the tab list on the left: reorder within the list, or pull one out (right past the
+// list or outside the window) to move it to another window / a new window, like Chrome.
 //
 // The web view does not always report the mouse release when it happens outside the window, so
 // a drag can also be ended from outside: the native app calls endDrag() on every mouse-up, and
 // losing pointer capture ends it too. Ending is idempotent.
 
-const DETACH_PX = 40; // this far below the tab bar counts as "pulled out"
+const DETACH_PX = 40; // this far right of the tab list counts as "pulled out"
 let drag = null;
 let suppressClick = false;
 
@@ -15,7 +15,7 @@ export function consumeDragClick() { const s = suppressClick; suppressClick = fa
 
 function pulledOut(e, bar) {
   const r = bar.getBoundingClientRect();
-  return e.clientY > r.bottom + DETACH_PX || e.clientY < 2 || e.clientX < 2 || e.clientX > innerWidth - 2;
+  return e.clientX > r.right + DETACH_PX || e.clientY < 2 || e.clientX < 2 || e.clientX > innerWidth - 2 || e.clientY > innerHeight - 2;
 }
 
 /**
@@ -64,14 +64,14 @@ export function attachTabDrag(el, h) {
       if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 6) return;
       drag.moved = true;
       const r = el.getBoundingClientRect();
-      drag.dx = drag.x0 - r.left;
+      drag.dx = drag.x0 - r.left; drag.dy = drag.y0 - r.top;
       drag.ghost = el.cloneNode(true);
       drag.ghost.classList.add('tab-ghost');
       drag.ghost.style.width = r.width + 'px';
       document.body.append(drag.ghost);
       el.classList.add('dragging');
     }
-    drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - 14}px)`;
+    drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - drag.dy}px)`;
     drag.out = pulledOut(e, h.bar);
     drag.x = e.clientX; drag.y = e.clientY;
     document.body.classList.toggle('tab-detaching', drag.out);
@@ -81,8 +81,8 @@ export function attachTabDrag(el, h) {
     for (const t of h.bar.children) {
       if (t === el) continue;
       const r = t.getBoundingClientRect();
-      if (e.clientX >= r.left && e.clientX <= r.right) {
-        h.bar.insertBefore(el, e.clientX < r.left + r.width / 2 ? t : t.nextSibling);
+      if (e.clientY >= r.top && e.clientY <= r.bottom) {
+        h.bar.insertBefore(el, e.clientY < r.top + r.height / 2 ? t : t.nextSibling);
         break;
       }
     }

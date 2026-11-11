@@ -11,16 +11,22 @@
 </head>
 <body>
   <header id="tabbar">
-    <div id="tabs"></div>
-    <button id="new-tab" title="New tab in the same folder (Ctrl+Shift+T)">+</button>
+    <button id="side-btn" title="Show or hide the tab list (⌘B)">◧</button>
+    <span id="bar-title"></span>
     <span class="spacer"></span>
     <button id="inbox-btn">☰ Inbox</button>
     <button id="split-btn" title="Split: show two tabs side by side (⌘\\). Or drag a tab onto the right half of the window.">◫ Split</button>
     <button id="ws-btn" title="Save or reopen this window's tabs (⌥⌘S / ⌥⌘O)">▤ Workspaces</button>
     <select id="theme" title="Theme"></select>
   </header>
-  <div id="panes">
-    <div id="no-tabs" hidden>No tabs open. <button id="no-tabs-new">New tab</button></div>
+  <div id="main">
+    <aside id="sidebar">
+      <div id="tabs"></div>
+      <button id="new-tab" title="New tab in the same folder (Ctrl+Shift+T)"><span class="nt-plus">+</span><span class="nt-text"> New tab</span></button>
+    </aside>
+    <div id="panes">
+      <div id="no-tabs" hidden>No tabs open. <button id="no-tabs-new">New tab</button></div>
+    </div>
   </div>
   <div id="toast" hidden></div>
   <script src="/vendor/xterm.js"></script>
