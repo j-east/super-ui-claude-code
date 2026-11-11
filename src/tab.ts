@@ -43,6 +43,7 @@ export class Tab {
   private snapAt = 0; private lastSnapCheck = 0; snapRows = 0; // rows Claude Code's bottom box needs
   private liveBaseline: string[] = []; // screen lines already covered by the transcript
   private lastLive = '';
+  private liveArmed = false;   // no live preview until you send something or the transcript grows
   private lastLiveAt = 0;
   private cols = 120;
   private rows = 30;
@@ -73,14 +74,16 @@ export class Tab {
             // What's on screen now is (about to be) in the transcript; only show what comes after it.
             this.liveBaseline = this.screen.liveLines();
             this.lastLive = '';
+            this.liveArmed = true;
           },
           queue: (items: string[]) => this.emit({ type: 'queue', items }),
         }, resumedSessionId(dir, p.args), () => {
           const id = sessionIdForPid(p.pid);
-          return id ? findTranscript(id, dir) : null;
+          return id ? { file: findTranscript(id, dir) } : null;
         });
         this.emit({ type: 'transcript-reset', file: null, entries: [] });
         this.setLabel(null);
+        this.liveArmed = false; // Claude Code's startup banner isn't work in progress
         this.dialogAt = -1; // re-read the screen: a dialog may already be showing
         this.liveBaseline = this.screen.liveLines(); // shell output before claude isn't "live"
         this.lastLive = '';
@@ -104,6 +107,7 @@ export class Tab {
 
   input(data: string): void {
     this.lastInputAt = Date.now();
+    if (data.includes('\r')) this.liveArmed = true; // you sent something: what follows is worth previewing
     this.ignoreUntil = this.lastInputAt + ECHO_MS;
     this.shell.write(data);
   }
@@ -288,8 +292,8 @@ export class Tab {
       const rows = this.screen.bottomRows();
       if (rows && rows !== this.snapRows) { this.snapRows = rows; this.emit({ type: 'snap', rows }); }
     }
-    if (busy && now - this.lastLiveAt >= LIVE_EVERY) { this.lastLiveAt = now; this.setLive(this.liveText()); }
-    else if (!busy) this.setLive('');
+    if (busy && this.liveArmed && now - this.lastLiveAt >= LIVE_EVERY) { this.lastLiveAt = now; this.setLive(this.liveText()); }
+    else if (!busy || !this.liveArmed) this.setLive('');
 
     // Re-scan the screen for a prompt only when something new was printed.
     if (this.shell.lastOutputAt !== this.promptAt) { this.promptAt = this.shell.lastOutputAt; this.promptCache = undefined; }

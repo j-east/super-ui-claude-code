@@ -188,9 +188,14 @@ export class TranscriptFollower {
   private queue: string[] = [];
   private timer: NodeJS.Timeout | undefined;
 
-  /** `locate`: the exact transcript of the claude process, when known; overrides the guessing below. */
+  /**
+   * `locate`: what Claude Code itself says this claude process's session is. `{ file }` once it has a
+   * transcript, `{ file: null }` while it has none yet (a session with no message), null if it can't
+   * say. Only in that last case do we guess from the folder: guessing while the session is known would
+   * pick up another tab's transcript when two sessions run in the same folder.
+   */
   constructor(private dir: string, private since: number, private ev: FollowerEvents, resume?: string | null,
-    private locate?: () => string | null) {
+    private locate?: () => { file: string | null } | null) {
     this.adoptedAt = since;
     if (resume) { this.file = findTranscript(resume, dir) ?? path.join(dir, `${resume}.jsonl`); this.seek(this.file); }
   }
@@ -212,7 +217,7 @@ export class TranscriptFollower {
 
   private step(): void {
     const exact = this.locate?.();
-    if (exact) { if (exact !== this.file) this.adopt(exact); }
+    if (exact) { if (exact.file && exact.file !== this.file) this.adopt(exact.file); }
     else if (Date.now() - this.lastDirScan > 2000) { this.lastDirScan = Date.now(); this.checkForNewer(); }
     if (!this.file || !fs.existsSync(this.file)) return;
     const size = fs.statSync(this.file).size;
