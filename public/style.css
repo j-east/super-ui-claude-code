@@ -109,20 +109,16 @@ details.tool { counter-reset: call; }
 .thinking .body { font-family: inherit; font-style: italic; }
 .empty { color: var(--muted); text-align: center; margin-top: 30vh; }
 /* start screen of a tab with no Claude session yet */
-.welcome { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-top: 2vh; text-align: center; }
-.wl-head h1 { margin: 2px 0 4px; font-size: 24px; font-weight: 650; letter-spacing: -.01em; }
+.welcome { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; margin-top: -10px; }
+.wl-head { display: flex; align-items: center; gap: 14px; text-align: left; }
+.wl-icon { width: 68px; height: 68px; flex: none; }
+.wl-head h1 { margin: 0 0 2px; font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
 .wl-tag { margin: 0; color: var(--muted); }
-.wl-hero { width: min(240px, 60%); height: auto; display: block; margin: 0 auto; }
-.wl-spark { transform-origin: 246px 50px; animation: wl-turn 40s linear infinite; }
-.wl-caret { animation: wl-blink 1.1s steps(1) infinite; }
-@keyframes wl-turn { to { transform: rotate(360deg); } }
-@keyframes wl-blink { 50% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .wl-spark, .wl-caret { animation: none; } }
 .wl-where { display: flex; gap: 8px; align-items: center; max-width: 100%; padding: 5px 14px; border-radius: 999px;
   background: var(--panel); border: 1px solid var(--line); font: 13px ui-monospace, Menlo, monospace; }
 .wl-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wl-row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-.wl-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 132px; padding: 10px 16px;
+.wl-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 132px; padding: 8px 16px;
   border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; font: inherit; }
 .wl-btn b { font-weight: 600; }
 .wl-btn span { font-size: 12px; color: var(--muted); }
@@ -131,9 +127,10 @@ details.tool { counter-reset: call; }
 .wl-btn.primary span { color: inherit; opacity: .85; }
 .wl-btn.primary:hover { filter: brightness(1.08); }
 [data-mode="dark"] .wl-btn.primary { color: #141413; }
-.wl-recents { width: min(560px, 100%); text-align: left; }
+.wl-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 6px 24px; width: 100%; align-items: start; }
+.wl-recents { min-width: 0; text-align: left; }
 .wl-h { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 4px 10px 6px; }
-.wl-recent { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.wl-recent { display: flex; align-items: baseline; gap: 10px; padding: 5px 10px; border-radius: 8px; cursor: pointer; }
 .wl-recent:hover { background: var(--panel); }
 .wl-recent b { flex: none; font-weight: 600; }
 .wl-rpath { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

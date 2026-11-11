@@ -14,37 +14,6 @@ export const setWelcomeInfo = (i) => { info = i; };
 /** Saved workspaces changed (one was saved or deleted). */
 export const setWelcomeWorkspaces = (list) => { if (info) info.workspaces = list; };
 
-// The app in miniature: transcript on top, terminal below, and a spark for Claude.
-const HERO = `
-<svg class="wl-hero" viewBox="0 0 320 190" role="img" aria-label="A window with a conversation above and a terminal below">
-  <defs>
-    <radialGradient id="wl-glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0" stop-color="var(--accent)" stop-opacity=".38"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <circle cx="246" cy="50" r="62" fill="url(#wl-glow)"/>
-  <rect x="42" y="22" width="220" height="150" rx="12" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
-  <circle cx="58" cy="36" r="3" fill="var(--line)"/><circle cx="68" cy="36" r="3" fill="var(--line)"/><circle cx="78" cy="36" r="3" fill="var(--line)"/>
-  <rect x="96" y="31" width="54" height="10" rx="5" fill="var(--bg)" stroke="var(--line)"/>
-  <rect x="154" y="31" width="40" height="10" rx="5" fill="none" stroke="var(--line)"/>
-  <line x1="42" y1="48" x2="262" y2="48" stroke="var(--line)" stroke-width="1.5"/>
-  <rect x="170" y="58" width="78" height="14" rx="7" fill="var(--user)" stroke="var(--line)"/>
-  <rect x="58" y="80" width="120" height="6" rx="3" fill="var(--muted)" opacity=".55"/>
-  <rect x="58" y="92" width="150" height="6" rx="3" fill="var(--muted)" opacity=".4"/>
-  <rect x="58" y="104" width="92" height="6" rx="3" fill="var(--muted)" opacity=".28"/>
-  <rect x="42.75" y="122" width="218.5" height="38" fill="var(--code)"/>
-  <path d="M42.75 160 a11.25 11.25 0 0 0 11.25 11.25 h196 a11.25 11.25 0 0 0 11.25 -11.25 z" fill="var(--code)"/>
-  <line x1="42" y1="122" x2="262" y2="122" stroke="var(--line)" stroke-width="1.5"/>
-  <rect x="134" y="119.5" width="36" height="5" rx="2.5" fill="var(--line)"/>
-  <path d="M58 139 l6 5 -6 5" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="72" y="140.5" width="44" height="7" rx="2" fill="var(--text)" opacity=".8"/>
-  <rect class="wl-caret" x="120" y="139" width="6" height="10" fill="var(--accent)"/>
-  <g class="wl-spark" stroke="var(--accent)" stroke-width="5" stroke-linecap="round">
-    <line x1="246" y1="24" x2="246" y2="76"/><line x1="220" y1="50" x2="272" y2="50"/>
-    <line x1="227.6" y1="31.6" x2="264.4" y2="68.4"/><line x1="264.4" y1="31.6" x2="227.6" y2="68.4"/>
-  </g>
-</svg>`;
-
 function ago(at) {
   const m = Math.max(0, Math.round((Date.now() - at) / 60000));
   if (m < 1) return 'just now';
@@ -69,8 +38,11 @@ export function welcomeEl(view) {
   const missing = info && !info.claude;
 
   const head = h('div', 'wl-head');
-  head.innerHTML = HERO;
-  head.append(h('h1', null, 'Claude Code Super UI'), h('p', 'wl-tag', 'The conversation up top. The real terminal below.'));
+  const icon = h('img', 'wl-icon');
+  icon.src = '/icon.png'; icon.alt = '';
+  const titles = h('div', 'wl-titles-box');
+  titles.append(h('h1', null, 'Claude Code Super UI'), h('p', 'wl-tag', 'The conversation up top. The real terminal below.'));
+  head.append(icon, titles);
   root.append(head);
 
   if (missing) {
@@ -99,12 +71,13 @@ export function welcomeEl(view) {
     btn('', 'Resume…', 'pick an old session', () => act({ type: 'launch', kind: 'resume' })));
   root.append(main);
 
+  const cols = h('div', 'wl-cols');
   // Saved workspaces first: reopening one resumes every session in it.
   const saved = info?.workspaces ?? [];
   if (saved.length) {
     const box = h('div', 'wl-recents');
     box.append(h('div', 'wl-h', 'Workspaces'));
-    for (const w of saved.slice(0, 5)) {
+    for (const w of saved.slice(0, 4)) {
       const row = h('div', 'wl-recent');
       const titles = w.titles.filter(Boolean).join(' · ');
       row.title = `Reopen ${w.tabs} tab${w.tabs === 1 ? '' : 's'} and resume their sessions` + (titles ? `:\n${w.titles.filter(Boolean).join('\n')}` : '');
@@ -113,12 +86,12 @@ export function welcomeEl(view) {
       row.addEventListener('click', () => view.send({ type: 'open-workspace', name: w.name }));
       box.append(row);
     }
-    if (saved.length > 5) {
+    if (saved.length > 4) {
       const more = h('button', 'wl-link wl-more', `All ${saved.length} workspaces…`);
       more.addEventListener('click', () => window.cp?.openWorkspaceMenu());
       box.append(more);
     }
-    root.append(box);
+    cols.append(box);
   }
 
   const recents = (info?.recents ?? []).filter((r) => r.cwd !== view.cwd);
@@ -136,8 +109,10 @@ export function welcomeEl(view) {
       row.addEventListener('click', () => act({ type: 'cd', dir: r.cwd }));
       box.append(row);
     }
-    root.append(box);
+    cols.append(box);
   }
+
+  if (cols.children.length) root.append(cols);
 
   const foot = h('div', 'wl-foot');
   const k = document.documentElement.dataset.os === 'win' ? 'Ctrl+Shift+' : '⌘';

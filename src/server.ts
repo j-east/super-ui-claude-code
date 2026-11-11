@@ -43,13 +43,13 @@ const VENDOR: Record<string, string> = {
   'hljs-dark.css': '@highlightjs/cdn-assets/styles/github-dark.min.css',
   'hljs-light.css': '@highlightjs/cdn-assets/styles/github.min.css',
 };
-const TYPES: Record<string, string> = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' };
+const TYPES: Record<string, string> = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.png': 'image/png' };
 
 function staticFile(p: string): string | null {
   if (p === '/') return path.join(ROOT, 'public/index.html');
   const v = p.match(/^\/vendor\/([\w.-]+)$/);
   if (v) return VENDOR[v[1]!] ? path.join(NM, VENDOR[v[1]!]!) : null;
-  const pub = p.match(/^\/([\w-]+\.(?:js|css|html))$/);
+  const pub = p.match(/^\/([\w-]+\.(?:js|css|html|png))$/);
   return pub ? path.join(ROOT, 'public', pub[1]!) : null;
 }
 
