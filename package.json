@@ -1,7 +1,10 @@
 {
   "name": "claude-pane",
   "version": "0.3.0",
-  "repository": { "type": "git", "url": "git+https://github.com/j-east/super-ui-claude-code.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/j-east/super-ui-claude-code.git"
+  },
   "homepage": "https://github.com/j-east/super-ui-claude-code#readme",
   "private": true,
   "type": "module",
@@ -35,8 +38,8 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
-    "electron": "^33.4.11",
-    "electron-builder": "^25.1.8",
+    "electron": "^45.3.0",
+    "electron-builder": "^26.18.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },
@@ -69,6 +72,9 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "toolsets": {
+      "winCodeSign": "1.1.0"
     }
   },
   "license": "MIT"

@@ -113,6 +113,10 @@ native `claude.exe` install (not the npm one), and WSL sessions are not detected
 To build it yourself, on Windows or macOS: `npm install && npm run dist:win`. The installer lands in
 `dist.noindex/electron/`.
 
+If the build stops on Windows with "Cannot create symbolic link: A required privilege is not held by the
+client", turn on Developer Mode (Settings → System → For developers) or build from an administrator
+shell, then run it again.
+
 ## Shortcuts
 
 macOS:
