@@ -21,10 +21,10 @@ export class PtySession {
   lastOutputAt = 0;
   exitCode: number | null = null;
 
-  constructor(file: string, args: string[], cwd: string) {
+  constructor(file: string, args: string[], cwd: string, extraEnv: Record<string, string> = {}) {
     this.proc = pty.spawn(file, args, {
       name: 'xterm-256color', cols: 120, rows: 30, cwd,
-      env: childEnv(),
+      env: { ...childEnv(), ...extraEnv },
     });
     this.proc.onData((d) => {
       this.lastOutputAt = Date.now();

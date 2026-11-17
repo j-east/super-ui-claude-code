@@ -22,6 +22,28 @@ function highlight(code) {
   code.closest('pre')?.classList.add('plain');
 }
 
+/** Wraps a code block so a Copy button can sit in its top right corner (outside the block's own scrolling). */
+function copyable(pre) {
+  const wrap = el('div', 'codewrap');
+  pre.replaceWith(wrap);
+  const b = el('button', 'copy-btn', 'Copy');
+  b.type = 'button';
+  b.title = 'Copy this block';
+  b.onclick = async () => {
+    const text = (pre.querySelector('code') ?? pre).textContent.replace(/\n$/, '');
+    let ok = true;
+    try { await navigator.clipboard.writeText(text); } catch {
+      // No clipboard access: select the block and use the old copy command.
+      const sel = getSelection(); const r = document.createRange();
+      r.selectNodeContents(pre); sel.removeAllRanges(); sel.addRange(r);
+      ok = document.execCommand('copy'); sel.removeAllRanges();
+    }
+    b.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(() => { b.textContent = 'Copy'; }, 1400);
+  };
+  wrap.append(pre, b);
+}
+
 import { dialogCard } from './dialogcard.js';
 import { welcomeEl } from './welcome.js';
 
@@ -311,13 +333,27 @@ export class TabView {
     if (this.pinned) this.glideToBottom();
   }
 
-  /** Follow growth smoothly when it's a small step; jump when it's far. */
+  /**
+   * Follow growth smoothly when it's a small step; jump when it's far. The glide sets scrollTop itself,
+   * frame by frame. The browser's own smooth scroll runs off the main thread, and in the Mac app's web
+   * view it could end with the painted position and the real one a few lines apart, so a click or a
+   * text selection landed above where you pointed.
+   */
   glideToBottom() {
     if (!this.active) return;
-    const target = this.logEl.scrollHeight - this.logEl.clientHeight;
-    const delta = target - this.logEl.scrollTop;
+    const gap = () => this.logEl.scrollHeight - this.logEl.clientHeight - this.logEl.scrollTop;
+    const delta = gap();
     if (delta <= 1) return;
-    this.logEl.scrollTo({ top: target, behavior: delta < 400 ? 'smooth' : 'auto' });
+    if (delta >= 400) { this.logEl.scrollTop = this.logEl.scrollHeight; return; }
+    if (this.gliding) return;
+    this.gliding = true;
+    const step = () => {
+      const d = gap();
+      if (!this.active || !this.pinned || d <= 1) { this.gliding = false; return; }
+      this.logEl.scrollTop += Math.max(1, Math.ceil(d * 0.25));
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   setMode(mode, cwd) {
@@ -362,6 +398,7 @@ export class TabView {
         const n = el('div', 'msg assistant');
         n.innerHTML = md(e.text);
         n.querySelectorAll('pre code').forEach(highlight);
+        n.querySelectorAll('pre').forEach(copyable);
         return n;
       }
       case 'thinking': {

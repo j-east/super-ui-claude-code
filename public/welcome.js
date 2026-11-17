@@ -73,7 +73,8 @@ export function welcomeEl(view) {
 
   const cols = h('div', 'wl-cols');
   // Saved workspaces first: reopening one resumes every session in it.
-  const saved = info?.workspaces ?? [];
+  // A safety-net save ("Last session") only shows when it holds something no workspace has.
+  const saved = (info?.workspaces ?? []).filter((w) => !w.covered);
   if (saved.length) {
     const box = h('div', 'wl-recents');
     box.append(h('div', 'wl-h', 'Workspaces'));

@@ -127,7 +127,7 @@ export class Pane {
     this.launcherEl.hidden = !v || v.mode !== 'shell' || !v.hasTranscript;
     this.el.classList.toggle('lunatic', !!v?.lunatic);
     // Split view: a header saying which session this half is (the auto label and its sentence).
-    const labelled = v && (v.mode === 'claude' || v.hasTranscript) ? v.label : null;
+    const labelled = v && (v.mode === 'claude' || v.hasTranscript || v.seeded) ? v.label : null;
     this.headLabel.textContent = v ? (v.mode === 'claude' ? '✳ ' : '') + (labelled?.label || v.title || v.name) : 'No tab';
     const sum = !v ? '' : labelled?.summary || (v.title && v.title !== this.headLabel.textContent ? v.title : v.tilde(v.cwd));
     this.headSum.textContent = sum; this.headSum.title = sum;

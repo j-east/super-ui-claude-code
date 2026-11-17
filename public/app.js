@@ -6,6 +6,7 @@ import { setWelcomeInfo, setWelcomeWorkspaces } from './welcome.js';
 import { attachTabDrag, isDragging, consumeDragClick, endDrag } from './tabdrag.js';
 import { Pane } from './pane.js';
 import { initInbox } from './inbox.js';
+import { initRegistrar } from './registrar.js';
 
 const $ = (id) => document.getElementById(id);
 // Hosted by the native app? (WKWebView script bridge) Otherwise a plain browser window.
@@ -161,7 +162,8 @@ function renderTabs() {
 let lastBadge = 0;
 
 // ---------- tab hover card: the auto label's sentence, the session title, folder, state ----------
-const tabLabel = (v) => (v.mode === 'claude' || v.hasTranscript ? v.label?.label : '') || '';
+// `seeded`: a tab being reopened from a workspace shows its saved label while its session comes back.
+const tabLabel = (v) => (v.mode === 'claude' || v.hasTranscript || v.seeded ? v.label?.label : '') || '';
 const tabCard = document.createElement('div');
 tabCard.id = 'tab-card'; tabCard.hidden = true;
 document.body.append(tabCard);
@@ -290,10 +292,16 @@ const workspaces = initWorkspaces({
   send,
   tabs: () => [...views.values()].map((v) => ({ title: v.title || v.name, active: v === active })),
   activeId: () => active?.id,
+  tilde: (p) => (home && p.startsWith(home) ? '~' + p.slice(home.length) : p),
   onClose: () => active?.term.focus(),
 });
 const inbox = initInbox({
   button: $('inbox-btn'), send, myWindow: params.get('w'),
+  tilde: (p) => (home && p.startsWith(home) ? '~' + p.slice(home.length) : p),
+  onClose: () => active?.term.focus(),
+});
+const registrar = initRegistrar({
+  button: $('reg-btn'), send,
   tilde: (p) => (home && p.startsWith(home) ? '~' + p.slice(home.length) : p),
   onClose: () => active?.term.focus(),
 });
@@ -354,6 +362,7 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey && !e.shiftKey && e.key === 'z' && !typingInField()) { send({ type: 'reopen-tab' }); e.preventDefault(); e.stopPropagation(); return; } // ⌘Z reopen closed tab
   if (e.metaKey && e.key === 'i') { inbox.toggle(); e.preventDefault(); e.stopPropagation(); return; } // ⌘I inbox
   if (inbox.isOpen) { if (e.key === 'Escape') { inbox.close(); e.preventDefault(); e.stopPropagation(); } return; }
+  if (registrar.isOpen) { if (e.key === 'Escape') { registrar.close(); e.preventDefault(); e.stopPropagation(); } return; }
   if (e.metaKey && !e.shiftKey && e.key === 'b' && !typingInField()) { toggleSidebar(); e.preventDefault(); e.stopPropagation(); return; } // ⌘B tab list
   if (e.metaKey && e.key === '\\') { split(); e.preventDefault(); e.stopPropagation(); return; } // ⌘\ split / unsplit
   if (e.metaKey && /^[1-9]$/.test(e.key)) {          // ⌘1..9: switch tab
@@ -374,7 +383,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Enter') { send({ type: 'input', tab: active.id, data: '\r' }); e.preventDefault(); }
 }, true);
 document.addEventListener('mouseup', (e) => {
-  if (workspaces.isOpen || inbox.isOpen || e.target.closest('select, button, dialog, .inbox')) return;
+  if (workspaces.isOpen || inbox.isOpen || registrar.isOpen || e.target.closest('select, button, dialog, .inbox')) return;
   if (!String(window.getSelection())) active?.term.focus();
 });
 
@@ -394,12 +403,16 @@ function onMessage(m) {
   }
   if (m.type === 'workspaces') { workspaces.setList(m.list); setWelcomeWorkspaces(m.list); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'inbox') { inbox.setItems(m.items); return; }
+  if (m.type === 'registrar') { registrar.setState(m); return; }
   if (m.type === 'welcome') { setWelcomeInfo(m); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'toast') { toast(m.text); return; }
   if (m.type === 'pick-folder') { native?.postMessage({ type: 'choose-folder', tab: m.tab, cwd: m.cwd }); return; }
-  if (m.type === 'workspace-name') { // this window is saved as a named workspace and autosaves to it
+  if (m.type === 'workspace-name') { // this window is a workspace: the button becomes it, and opens its properties
+    workspaces.setCurrent(m.name);
     $('ws-btn').textContent = m.name ? `▤ ${m.name}` : '▤ Workspaces';
-    $('ws-btn').title = (m.name ? `This window autosaves to "${m.name}". ` : '') + 'Save or reopen this window\'s tabs (⌥⌘S / ⌥⌘O)';
+    $('ws-btn').classList.toggle('named', !!m.name);
+    $('ws-btn').title = m.name ? `Workspace "${m.name}", saved automatically. Click to rename it or close it (⌥⌘S)`
+      : 'Reopen a saved workspace, or name this window (⌥⌘S / ⌥⌘O)';
     return;
   }
   if (m.type === 'window-empty') { // last tab moved out: close this window like Chrome does
@@ -434,7 +447,7 @@ function onMessage(m) {
     case 'lunatic': v.lunatic = m.on; renderTabs(); break;
     case 'attention': alertTab(v, m.reason, m.label); break;
     case 'live': v.setLive(m.text); return;
-    case 'label': v.label = m.label; renderTabs(); return;
+    case 'label': v.label = m.label; v.seeded = !!m.seeded; renderTabs(); return;
     case 'dialog': v.setDialog(m.dialog); return;
     case 'snap': v.snapRows = m.rows; paneOf(v)?.autoSnap(); return;
     case 'queue': v.setQueue(m.items); return;

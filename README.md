@@ -5,195 +5,162 @@
 <h1 align="center">Claude Code Super UI</h1>
 
 <p align="center">
-  <b>The conversation up top. The real terminal below.</b><br>
-  A desktop app (macOS and Windows) for running several Claude Code sessions at once without losing track of any of them.
+  <b>Run a whole team of Claudes. Lose track of none of them.</b><br>
+  The desktop app that turns Claude Code from one terminal window into a workshop you can actually see.
+</p>
+
+<p align="center">
+  <a href="https://github.com/j-east/super-ui-claude-code/releases/latest"><b>Download for Mac</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/j-east/super-ui-claude-code/releases/latest"><b>Download for Windows</b></a>
+  &nbsp;·&nbsp; Free and open source
 </p>
 
 ---
 
-Claude Code is great in a terminal until you have five of them open. Long answers scroll away, tables wrap
-badly, every tab is called `claude`, and somewhere one of them has been waiting on a yes/no for twenty minutes.
+## One Claude is a tool. Five Claudes is chaos.
 
-Super UI keeps Claude Code exactly as it is (the real CLI, in a real terminal, with your own login and
-settings) and puts a proper reading surface on top of it: rendered Markdown, tabs that name themselves, one
-inbox for everything that needs you, and questions you can answer with a click.
+Claude Code is one of the most capable AI builders around, and it lives in a terminal: a black window of
+scrolling text. That works for one session. Then you open a second one for the website, a third for the
+pitch deck, a fourth to chase a bug, and suddenly:
 
-It does not replace Claude Code or talk to the API for you. It runs `claude` in a shell and reads the
-session logs Claude Code already writes.
+- Every tab is called `claude`, and you can't remember which is which.
+- One of them asked you a yes/no question twenty minutes ago and has been sitting idle ever since.
+- A beautiful answer with a table in it scrolled off the screen as garbled text.
+- Two of them quietly built the same thing, two different ways.
 
-## What you get
+Super UI fixes all four. You don't need to be a programmer to use it. If you can use Claude Code, you can
+use this, and you'll get far more out of it.
 
-**A transcript you can read.** Markdown, tables and highlighted code, rendered as Claude writes them. Tool
-calls fold into one line each, with repeats grouped. Compactions become a divider instead of a wall of
-text, and recaps show up as cards.
+## What it feels like
 
-**A terminal that stays out of the way.** The terminal under the transcript is the real thing, and you can
-type in it whenever you like. While Claude runs it shrinks to just the input box, and it grows back when
-there is a dialog to see. Drag the divider to take over, double-click it to hand control back.
+**Read it like a document, not a log.** Every session gets a clean, readable page: real headings, real
+tables, highlighted code. The busywork Claude does along the way folds down to a line each, so you see the
+thinking and the answers, not the plumbing.
 
-**Tabs that say what they are.** Each session gets a three to five word label and a one sentence summary,
-written by a small headless `claude -p` run on Sonnet. Tabs live in a list down the left side,
-each with its label and folder; hover one for the summary and state. `⌘B` collapses the list to a rail of
-status dots.
+**The real thing is still right there.** Under the page sits the actual Claude Code terminal, untouched.
+Nothing is replaced or imitated. It's your login, your settings, your subscription. Type in it whenever you
+want; it tucks itself away while Claude is working.
 
-**Question cards.** When Claude asks you something (a permission prompt, a multiple choice question, a
-multi-select with several steps) the whole question appears as a card under the transcript, with every
-option and its description. Click to answer. No more enlarging the terminal to find option 4.
+**Tabs that name themselves.** No more wall of tabs called `claude`. Each session writes its own label,
+like "Pricing page redesign" or "Fix login bug", and keeps it current as the work moves on. They sit in a
+tidy list down the left side, with a colored dot that tells you who's working, who's done, and who needs you.
 
-**One inbox.** `⌘I` lists every session in every window in three groups: asking you a question, finished
-and waiting, and still working. Answer questions right there, or click a session to jump to it.
+**Questions come to you.** When Claude needs a decision, it shows up as a card with every option spelled
+out. Click one. Done. No squinting at a terminal to find option 4.
 
-**Split view.** `⌘\` or drag a tab to the right half of the window to put two sessions side by side, each
-with its own header saying which one it is.
+**One inbox for everything.** Press `⌘I` and see every session at once: who's asking you something, who's
+finished, who's still going. Answer questions right from the list.
 
-**Workspaces.** Save a window's tabs under a name and reopen them later, with every session resumed where
-it left off. A saved window keeps its workspace up to date as you add and close tabs, and the last session
-is always saved for you. Closed a tab by mistake? `⌘Z` brings it back.
+**Side by side.** Split the window and watch two sessions at once.
 
-**Alerts.** A notification and a marked tab when a session finishes or needs input. `⌘J` jumps to the next
-one waiting.
+**Pick up where you left off.** Every window becomes a workspace as you use it: it names itself after
+the project and saves itself as tabs come and go. Close it, reopen it tomorrow, and every conversation
+resumes. Closed a tab by accident? `⌘Z` brings it back.
 
-**A start screen.** New tabs open on a launcher: start Claude, pick a folder, resume a session, reopen a
-saved workspace, or jump into a recent folder. If Claude Code is not installed, a setup card offers to install it.
+## The Registrar: no boss, perfect memory
 
-**Also:** live preview of what Claude is doing right now, a "new messages" pill when you have scrolled up,
-a warning before you quit with a task running, four themes, and drag tabs between windows.
+Most multi-agent tools put an "orchestrator" in charge: one AI that hands out work to the others. We think
+that's the wrong shape. A manager AI becomes a bottleneck, forgets things, and takes you out of the
+driver's seat.
 
-## Install on macOS
+Super UI does the opposite. **You** start a session when you have something to do, and close it when it's
+done. Nobody is in charge but you.
 
-Apple Silicon Macs (macOS 13 or later): download `Claude-Code-Super-UI-<version>-mac-arm64.zip` from the
-[latest release](https://github.com/j-east/super-ui-claude-code/releases/latest), unzip it and drag the app
-to Applications. Everything is bundled; you only need [Claude Code](https://claude.com/claude-code).
+What the app adds is a **Registrar**: a quiet observer that reads what your sessions are doing and keeps
+the record. Think of the records office at a great research lab. It doesn't tell anyone what to work on.
+It just knows what everyone has done.
 
-The build is not notarized yet, so macOS will refuse to open it the first time. Either go to System
-Settings → Privacy & Security and click Open Anyway, or run
-`xattr -dr com.apple.quarantine "/Applications/Claude Code Super UI.app"` once.
+- **In flight:** one plain sentence on what each session is doing right now.
+- **Decisions on record:** the lasting choices your sessions have made, kept per project, even after you
+  close the tab. What got built, which tools were picked, where things live.
+- **Prior art:** when a session starts redoing something that already exists, or doing it a different
+  way, the Registrar raises a flag and drafts a note. One click drops the note into that session. You
+  decide whether to send it.
 
-### Build from source
+Sessions can also check the record themselves. Every Claude you start in the app gets one extra,
+read-only tool: before it builds something new, it can ask what has already been decided. Your request
+always comes first; the lookup happens only when the session thinks it needs one.
 
-Requirements: macOS 13 or later, [Node.js](https://nodejs.org) 20+, Xcode command line tools
-(`xcode-select --install`), and [Claude Code](https://claude.com/claude-code).
+The result: your sessions stay independent and fast, and you stop paying twice for the same work.
 
-```sh
-git clone https://github.com/j-east/super-ui-claude-code.git
-cd super-ui-claude-code
-npm install
-npm run build:app
-```
+## Get started in two minutes
 
-That builds `Claude Code Super UI.app`, installs it in `~/Applications` and registers it with Spotlight.
-Open it like any other app.
+You need [Claude Code](https://claude.com/claude-code) and a Claude subscription. If Claude Code isn't
+installed yet, the app's start screen offers to install it for you.
 
-To build a self-contained copy for another Mac (Node and everything else bundled, nothing to install):
+**Mac (Apple Silicon)**
 
-```sh
-npm run dist        # zip lands in dist.noindex/release/
-```
+1. Download the `mac-arm64.zip` from the [latest release](https://github.com/j-east/super-ui-claude-code/releases/latest),
+   unzip it, and drag the app to Applications.
+2. The first time, macOS will refuse to open it, because the app isn't registered with Apple yet. Go to
+   System Settings → Privacy & Security and click **Open Anyway**.
 
-Without a Developer ID the result is ad-hoc signed, so the other Mac will need right-click → Open the
-first time. Set `SIGN_ID` (and `NOTARY_PROFILE`) to sign and notarize; see `scripts/build-app.sh`.
+**Windows**
 
-## Install on Windows
+1. Download the `.exe` from the [latest release](https://github.com/j-east/super-ui-claude-code/releases/latest) and run it.
+2. Windows will warn that it doesn't recognize the app, for the same reason. Click **More info**, then **Run anyway**.
 
-Download `Claude-Code-Super-UI-<version>-win-x64.exe` from the
-[latest release](https://github.com/j-east/super-ui-claude-code/releases/latest) (or the portable `.zip`) and run it. The build is not code signed yet, so SmartScreen will show "Windows protected your PC":
-choose More info → Run anyway.
+The Windows version is new and experimental. If something breaks, [tell us](https://github.com/j-east/super-ui-claude-code/issues).
 
-You need [Claude Code](https://claude.com/claude-code) installed for Windows. If it is missing, the start
-screen offers to install it.
+Open the app and you land on a start screen: launch Claude, pick a folder, or jump back into something recent.
 
-Each tab runs PowerShell (PowerShell 7 if you have it, otherwise the one that ships with Windows). App
-shortcuts use `Ctrl+Shift` where the Mac uses `⌘`, because plain `Ctrl+C` and friends belong to the
-terminal: `Ctrl+Shift+T` new tab, `Ctrl+Shift+W` close tab, `Ctrl+Shift+Z` reopen a closed tab,
-`Ctrl+Tab` next tab, `Ctrl+Shift+I` inbox, `Ctrl+Shift+B` tab list, `Ctrl+Shift+\` split, `Ctrl+Shift+C` / `Ctrl+Shift+V` copy and paste.
+## Questions people ask
 
-The Windows version is new. The server parts are smoke-tested on a real Windows machine on every push
-(see below), but the app as a whole has had far less use than the Mac one. Known gaps: tab labels need the
-native `claude.exe` install (not the npm one), and WSL sessions are not detected.
+**Do I need to know how to code?**
+No. You need to be comfortable with Claude Code, and that's it.
 
-To build it yourself, on Windows or macOS: `npm install && npm run dist:win`. The installer lands in
-`dist.noindex/electron/`.
+**Does it cost anything?**
+The app is free. It runs on your own Claude subscription. The tab labels and the Registrar use a small
+amount of extra usage on your account, and you can switch either off.
 
-If the build stops on Windows with "Cannot create symbolic link: A required privilege is not held by the
-client", turn on Developer Mode (Settings → System → For developers) or build from an administrator
-shell, then run it again.
+**Is my work private?**
+Everything runs on your own computer. Two features send anything anywhere: tab labels and the Registrar.
+Each sends short excerpts of your sessions (your requests, the files changed, Claude's latest replies) to
+Claude on your own account, the same place your sessions already go. The Registrar's record is stored on
+your computer. Turn the Registrar off with the switch in its panel; see the
+[developer notes](docs/DEVELOPMENT.md) for the settings that turn off labels.
+
+**Is this made by Anthropic?**
+No. This is an independent project. It is not made or endorsed by Anthropic. "Claude" and "Claude Code"
+are Anthropic's trademarks.
+
+**Does it change how Claude Code works?**
+No. It runs the real Claude Code and reads the session history Claude Code already saves. It writes
+nothing into your Claude settings or your projects. Inside the app, Claude starts with one extra read-only
+tool for checking the Registrar's record; outside the app, nothing changes.
+
+**What is Lunatic mode?**
+A per-tab switch that answers Claude's prompts for you by pressing Enter on the first option. That means
+it approves everything, including commands that delete or overwrite files. It is off by default, it asks
+before turning on, and every automatic answer is noted. Use it only in a folder you could afford to lose.
 
 ## Shortcuts
 
-macOS:
+On Windows, use `Ctrl+Shift` where the Mac uses `⌘` (so `Ctrl+Shift+T` for a new tab).
 
 | | |
 |---|---|
-| `⌘T` / `⌘N` | New tab |
-| `⇧⌘N` | New window |
+| `⌘T` | New tab |
 | `⌘W` | Close tab |
-| `⌘Z` / `⇧⌘T` | Reopen the tab you just closed |
-| `⇧⌘]` / `⇧⌘[` | Next / previous tab |
-| `⌘B` | Show / hide the tab list |
-| `⌘\` | Split view |
+| `⌘Z` | Reopen the tab you just closed |
+| `⌘B` | Show or hide the tab list |
 | `⌘I` | Inbox |
-| `⌘J` | Jump to a tab that is waiting on you |
-| `⌥⌘S` / `⌥⌘O` | Save / open workspace |
-| `⇧⌘L` | Redraw the terminal |
-| `⌘R` | Reload the window (sessions keep running) |
+| `⌘J` | Jump to a session that is waiting on you |
+| `⌘\` | Split view |
+| `⌥⌘S` / `⌥⌘O` | Name this workspace / open a saved one |
 
-## Lunatic mode
+## For developers
 
-Each tab has a 🌀 Lunatic button. When it is on, the app presses Enter for you on Claude's prompts
-whenever option 1 is highlighted and you have not typed for three seconds.
-
-That means it approves every tool call, including commands that delete or overwrite things. It is off by
-default, it is per tab, it asks before turning on, and every automatic answer is noted in the transcript.
-Use it in a folder you could afford to lose.
-
-## How it works
-
-```
-┌──────────────────────────── Swift app (WKWebView windows, menus, notifications)
-│
-│   ┌──────────────────────── page: transcript, tabs, inbox, xterm.js
-│   │        ▲ websocket (127.0.0.1, token + origin checked)
-│   │        ▼
-│   └── Node server ── one pty per tab ── your login shell ── claude
-│            │
-│            └── follows ~/.claude/projects/…/<session>.jsonl for the transcript
-```
-
-- **`electron/`** The Windows host (Electron). Same job as `native/`, and it runs on macOS too
-  (`npm run electron`), which is how it gets tested without a PC.
-- **`native/`** The macOS shell: windows, menus, notifications, quit warnings. It starts the server and
-  stops it when the app quits.
-- **`src/`** The server. `tab.ts` owns a shell in a pty and a headless copy of its screen. `procwatch.ts`
-  notices when `claude` starts in it, `transcript.ts` follows that session's log, `screen.ts` reads
-  dialogs off the screen, `labeler.ts` writes tab labels.
-- **`public/`** The page, in plain JavaScript modules with no build step.
-
-Development loop: `npm run build:app` once, then `⌘R` picks up changes to `public/`. Changes to `src/` or
-`native/` need `npm run build:app` again and an app restart. `npm run dev` runs the server alone and opens
-it in a browser window.
-
-`npm run smoke` runs the server end to end against a stand-in for Claude Code: a shell starts, its folder is
-tracked, commands are typed, a running `claude` is noticed. GitHub Actions runs it on Windows on every push
-and builds the installer; pushing a tag like `v0.3.0` publishes a Release.
-
-## Privacy
-
-Everything runs on your own computer. The server listens on `127.0.0.1` only and every connection needs a random
-per-launch token.
-
-One feature sends anything anywhere: tab labels. To write a label, the app passes a short excerpt of the
-session (folder, title, your first and latest requests, Claude's latest reply) to `claude -p` on your own
-Claude account, the same place the session itself already goes. Turn it off with `CLAUDE_PANE_NO_LABELS=1`.
+It's a thin native window (Swift on Mac, Electron on Windows) around a small Node server that runs one
+real terminal per tab and follows Claude Code's session files. No Agent SDK, no hooks, no worktrees.
+Building from source, the architecture, and the test loop are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Status
 
-Version 0.4. It is used daily by its author and it is young. It reads Claude Code's screen and log format,
-neither of which is a public interface, so a Claude Code update can break a feature until this catches up.
-The Windows version is experimental. Found a bug? [Open an issue](https://github.com/j-east/super-ui-claude-code/issues).
+Version 0.4, used daily by its author, and young. It reads Claude Code's screen and session files, which
+Anthropic can change at any time, so a Claude Code update can break a feature until this catches up.
 
 ## License
 
 [MIT](LICENSE). Use it, change it, ship it; it comes with no warranty.
-
-This is an independent project. It is not made or endorsed by Anthropic. "Claude" and "Claude Code" are
-Anthropic's trademarks.

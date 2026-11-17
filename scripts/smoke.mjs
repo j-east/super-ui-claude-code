@@ -23,6 +23,7 @@ const diary = path.join(tmp, 'fake-claude.log');
 const fake = path.join(bin, 'fake.js');
 fs.writeFileSync(fake, `const fs = require('fs'); const log = (m) => fs.appendFileSync(${JSON.stringify(diary)}, m + '\\n');
 log('started pid ' + process.pid + ' tty ' + !!process.stdin.isTTY);
+log('argv ' + JSON.stringify(process.argv.slice(2)));
 process.on('exit', (c) => log('exit ' + c));
 setInterval(() => {}, 1000);
 process.stdin.on('end', () => log('stdin ended'));
@@ -90,6 +91,20 @@ await until('cd is typed and the new folder is noticed', () => same(last('mode')
 send({ type: 'launch', tab, kind: 'new' });
 const mode = await until('claude starting is noticed', () => (last('mode')?.mode === 'claude' ? last('mode') : null), 45_000);
 if (!same(mode.cwd, work)) throw new Error(`claude's folder is ${mode.cwd}, expected ${work}`);
+
+// Typing `claude` in a tab hands Claude the record tool: a config file for this tab and a note about it.
+const argv = await until('claude was started with the record tool', () => {
+  try { const m = fs.readFileSync(diary, 'utf8').match(/^argv (.*--mcp-config.*)$/m); const a = m && JSON.parse(m[1]); return a?.includes('--mcp-config') && a.includes('--append-system-prompt') ? a : null; } catch { return null; }
+});
+const rt = JSON.parse(fs.readFileSync(argv[argv.indexOf('--mcp-config') + 1], 'utf8')).mcpServers.registrar;
+if (!/check_record/.test(argv[argv.indexOf('--append-system-prompt') + 1])) throw new Error('the note about the tool did not arrive whole');
+const rpc = (body, headers = rt.headers) => fetch(rt.url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+const listed = await (await rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' })).json();
+if (listed.result?.tools?.[0]?.name !== 'check_record') throw new Error('record tool is not listed');
+const called = await (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'check_record', arguments: {} } })).json();
+if (!/^Project record for /.test(called.result?.content?.[0]?.text ?? '')) throw new Error('record tool gave no record: ' + JSON.stringify(called));
+if ((await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, {})).status !== 403) throw new Error('record tool answered without its token');
+console.log('ok   the record tool answers this tab, and only with its token');
 
 // While "claude" runs, nothing may be typed for you.
 const before = screen.length;

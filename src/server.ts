@@ -15,7 +15,9 @@ import { handoff, writeInstance, clearInstance } from './instance.js';
 import { welcomeInfo } from './setup.js';
 import { WIN, INSTALL_CLAUDE, shq, cdCommand } from './platform.js';
 import { stopProcHelper } from './procwatch.js';
-import { saveWorkspace, loadWorkspace, listWorkspaces, deleteWorkspace, pruneClosedWindowSaves, type WorkspaceTab } from './workspaces.js';
+import { clearRecordTool, forgetTab, handleRecordTool, recordToolEnv } from './recordtool.js';
+import { projectRoot, recordText, initRegistrar, registrarMsg, poke as pokeRegistrar, runNow as runRegistrar, setOn as setRegistrarOn, forgetDecision, closeFlag } from './registrar.js';
+import { saveWorkspace, loadWorkspace, listWorkspaces, deleteWorkspace, renameWorkspace, pruneClosedWindowSaves, pruneAutoWorkspaces, type WorkspaceTab } from './workspaces.js';
 
 // Works from src/ (tsx) and build/ (compiled): both sit one level below the repo root.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,14 +74,24 @@ function scheduleInbox(): void {
   inboxTimer ??= setTimeout(() => { inboxTimer = null; const m = inboxMsg(); for (const ws of clients.keys()) send(ws, m); }, 150);
 }
 
+// ---------- registrar: what the sessions in each project are doing and have decided ----------
+let regTimer: NodeJS.Timeout | null = null;
+function scheduleRegistrar(): void {
+  regTimer ??= setTimeout(() => { regTimer = null; for (const [ws, w] of clients) send(ws, registrarFor(w)); }, 200);
+}
+const registrarFor = (win: string) => registrarMsg(new Set([...tabs.values()].filter((t) => t.windowId === win).map((t) => t.id)));
+initRegistrar(() => [...tabs.values()].flatMap((t) => t.registrarInput() ?? []), scheduleRegistrar);
+
 function openTab(win: string, cwd: string, claudeArgs?: string[]): Tab {
   const id = String(nextId++);
   // Route by the tab's current window: tabs can be moved between windows.
   const tab: Tab = new Tab(id, win, cwd, (msg) => {
     toWindow(tab.windowId, { ...msg, tab: id });
     if (INBOX_EVENTS.has(String(msg.type))) scheduleInbox();
+    if (msg.type === 'label' || msg.type === 'mode') scheduleRegistrar();
+    if (msg.type === 'activity' && msg.busy === false) pokeRegistrar(); // a turn ended
     if (msg.type === 'mode' || msg.type === 'transcript-reset') scheduleAutosave(); // a session started or changed
-  });
+  }, recordToolEnv(id, port));
   tabs.set(id, tab);
   scheduleAutosave();
   tab.onExit(() => closeTab(id, true));
@@ -97,6 +109,7 @@ function moveTab(tab: Tab, to: string): void {
   if (windowHasClients(to)) movedFrom.delete(tab.id); else movedFrom.set(tab.id, from);
   toWindow(from, { type: 'tab-moved', tab: tab.id });
   scheduleInbox();
+  scheduleRegistrar();
   scheduleAutosave();
   toWindow(to, { ...tab.snapshot(), tab: tab.id });
   toWindow(to, { type: 'focus-tab', tab: tab.id });
@@ -115,6 +128,8 @@ function closeTab(id: string, remember = false): void {
   if (remember) { closedTabs.push({ ...tabRecord(tab), win: tab.windowId }); if (closedTabs.length > 20) closedTabs.shift(); }
   tabs.delete(id);
   resumeIds.delete(id);
+  forgetTab(id);
+  scheduleRegistrar();
   tab.dispose();
   toWindow(tab.windowId, { type: 'tab-closed', tab: id });
   scheduleInbox();
@@ -127,6 +142,7 @@ function restoreTab(win: string, rec: WorkspaceTab): Tab {
   // Workspace files can be edited by hand: only ever type a well-formed session id.
   const id = typeof rec.sessionId === 'string' && UUID.test(rec.sessionId) ? rec.sessionId : null;
   // Waits (up to 20 s) for the new tab's login shell to finish starting before typing.
+  if (id && rec.label) tab.seedLabel(rec.label);
   if (id) { resumeIds.set(tab.id, id); void tab.typeCommand(`claude --resume ${id}`, 20_000); }
   else if (rec.claude) void tab.typeCommand('claude', 20_000);
   return tab;
@@ -147,38 +163,62 @@ const tabRecord = (t: Tab): WorkspaceTab => {
   const pending = resumeIds.get(t.id);
   if (pending && t.sessionId) resumeIds.delete(t.id);
   const sessionId = t.sessionId ?? pending ?? null;
-  return { cwd: t.cwd, sessionId, title: t.title, claude: t.claudeRunning || (!!pending && !t.sessionId) };
+  return { cwd: t.cwd, sessionId, title: t.title, claude: t.claudeRunning || (!!pending && !t.sessionId), label: t.savedLabel };
 };
 const worthSaving = (list: Tab[]) => list.some((t) => t.sessionId);
 
 // ---------- autosave ----------
-// A window you saved as (or opened from) a named workspace keeps that workspace up to date as tabs come
-// and go. "Last session" is kept current the same way, so a crash loses nothing.
+// A window becomes a workspace by being used: once it holds a Claude session it gets a name (from the
+// project folder) and is saved as tabs come and go, with no Save step. Rename it to keep it for good;
+// only the newest few the app named itself are kept. "Last session" is kept current the same way, so a
+// crash loses nothing.
 const windowWorkspace = new Map<string, string>(); // window id -> workspace it is saved as
 const AUTO_NAME = /^(Last session$|Closed window )/;
+const AUTO_KEPT = 8;
 let autosaveTimer: NodeJS.Timeout | null = null;
 function bindWorkspace(win: string, name: string): void {
   if (AUTO_NAME.test(name)) return;
   windowWorkspace.set(win, name);
   toWindow(win, { type: 'workspace-name', name });
 }
+/** A name for a window nobody has named: the folder most of its sessions work in. */
+function nameFor(win: string): string {
+  const count = new Map<string, number>();
+  for (const t of windowTabs(win)) if (t.sessionId) { const k = path.basename(projectRoot(t.cwd)) || 'Workspace'; count.set(k, (count.get(k) ?? 0) + 1); }
+  const base = [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Workspace';
+  const taken = new Set(listWorkspaces().map((w) => w.name.toLowerCase()));
+  let name = base;
+  for (let i = 2; taken.has(name.toLowerCase()); i++) name = `${base} ${i}`;
+  return name;
+}
 function autosave(): void {
   autosaveTimer = null;
+  for (const win of new Set(clients.values())) {
+    if (windowWorkspace.has(win) || !worthSaving(windowTabs(win))) continue;
+    const name = nameFor(win);
+    saveWorkspace({ name, active: 0, tabs: windowTabs(win).map(tabRecord), auto: true });
+    bindWorkspace(win, name);
+    pruneAutoWorkspaces(AUTO_KEPT, new Set(windowWorkspace.values()));
+    toWindow(win, { type: 'toast', text: `This window is now the workspace "${name}". It saves itself as you work.` });
+    toWindow(win, { type: 'workspaces', list: listWorkspaces() });
+  }
   for (const [win, name] of windowWorkspace) if (windowTabs(win).length) saveWindow(win, name);
   const all = [...tabs.values()];
   if (worthSaving(all)) saveWorkspace({ name: 'Last session', active: 0, tabs: all.map(tabRecord) });
 }
 function scheduleAutosave(): void { autosaveTimer ??= setTimeout(autosave, 1500); }
 
-function saveWindow(win: string, name: string, activeTab?: string): void {
+function saveWindow(win: string, name: string, activeTab?: string, auto?: boolean): void {
   const list = windowTabs(win);
-  saveWorkspace({ name, active: Math.max(0, list.findIndex((t) => t.id === activeTab)), tabs: list.map(tabRecord) });
+  saveWorkspace({ name, active: Math.max(0, list.findIndex((t) => t.id === activeTab)), tabs: list.map(tabRecord), auto });
 }
 
 /** Reopen a workspace's tabs in `win`, resuming each Claude session. Skips sessions already open. */
 function openWorkspace(win: string, name: string): string | null {
   const w = loadWorkspace(name);
   if (!w) return `Workspace "${name}" not found`;
+  const here = windowWorkspace.get(win);
+  if (here && here !== w.name) return `Close "${here}" first (click its name in the top bar), then open "${w.name}"`;
   // Only sessions with Claude actually running count as open (an exited one can be resumed again).
   const openIds = new Set([...tabs.values()].filter((t) => t.claudeRunning).map((t) => t.sessionId).filter(Boolean));
   // A window holding only one untouched shell tab gets replaced rather than kept.
@@ -206,8 +246,11 @@ function windowGone(win: string): void {
     movedFrom.delete(t.id);
     if (from && windowHasClients(from)) moveTab(t, from);
   }
-  windowWorkspace.delete(win); // its named workspace keeps the tabs it had; closing the window doesn't empty it
-  if (worthSaving(windowTabs(win))) {
+  // Its workspace keeps the tabs it had; closing the window doesn't empty it.
+  const bound = windowWorkspace.get(win);
+  if (bound && windowTabs(win).length) saveWindow(win, bound);
+  windowWorkspace.delete(win);
+  if (!bound && worthSaving(windowTabs(win))) {
     const stamp = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     saveWindow(win, `Closed window ${stamp}`);
     pruneClosedWindowSaves(5);
@@ -253,6 +296,14 @@ const pendingCwd = new Map<string, string>(); // window id -> folder for its fir
 // ---------- http ----------
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname.startsWith('/mcp/')) {
+    // A Claude session in one of our tabs reading the registrar's record.
+    handleRecordTool(req, res, url.pathname.slice(5), (id, about) => {
+      const t = tabs.get(id);
+      return t ? recordText(t.registrarInput()?.cwd ?? t.cwd, id, about) : null;
+    });
+    return;
+  }
   if (url.pathname === '/api/busy') {
     // The app asks before quitting / closing a window: which tabs have Claude mid-task?
     if (url.searchParams.get('t') !== token) { res.writeHead(403).end(); return; }
@@ -332,6 +383,7 @@ server.on('upgrade', (req, sock, head) => {
     const mine = [...tabs.values()].filter((t) => t.windowId === win);
     for (const tab of mine) send(ws, { ...tab.snapshot(), tab: tab.id });
     send(ws, inboxMsg());
+    send(ws, registrarFor(win));
     if (windowWorkspace.has(win)) send(ws, { type: 'workspace-name', name: windowWorkspace.get(win) });
     void welcomeInfo().then((info) => send(ws, { type: 'welcome', ...info, workspaces: listWorkspaces() }));
     if (!mine.length && !detached) {
@@ -345,7 +397,7 @@ server.on('upgrade', (req, sock, head) => {
       let m: any; try { m = JSON.parse(String(raw)); } catch { return; }
       if (m.type === 'list-workspaces') { send(ws, { type: 'workspaces', list: listWorkspaces() }); return; }
       if (m.type === 'save-workspace' && typeof m.name === 'string' && m.name.trim()) {
-        saveWindow(win, m.name.trim(), String(m.active ?? ''));
+        saveWindow(win, m.name.trim(), String(m.active ?? ''), false);
         bindWorkspace(win, m.name.trim());
         send(ws, { type: 'toast', text: `Saved workspace "${m.name.trim()}"` });
         send(ws, { type: 'workspaces', list: listWorkspaces() });
@@ -356,6 +408,33 @@ server.on('upgrade', (req, sock, head) => {
         if (err) send(ws, { type: 'toast', text: err });
         return;
       }
+      if (m.type === 'rename-workspace' && typeof m.name === 'string') {
+        const from = windowWorkspace.get(win);
+        const to = m.name.trim().slice(0, 80);
+        if (!from || !to || to === from) return;
+        const clash = to.toLowerCase() !== from.toLowerCase() && listWorkspaces().some((w) => w.name.toLowerCase() === to.toLowerCase());
+        if (clash || AUTO_NAME.test(to)) { send(ws, { type: 'toast', text: `There is already a workspace called "${to}"` }); return; }
+        saveWindow(win, from);
+        if (!renameWorkspace(from, to)) return;
+        for (const [w, n] of windowWorkspace) if (n === from) bindWorkspace(w, to);
+        send(ws, { type: 'workspaces', list: listWorkspaces() });
+        return;
+      }
+      if (m.type === 'close-workspace') {
+        // Put the workspace away: save it, then swap its tabs for a fresh one. Its sessions resume when it is reopened.
+        const name = windowWorkspace.get(win);
+        if (!name) return;
+        saveWindow(win, name);
+        windowWorkspace.delete(win);
+        toWindow(win, { type: 'workspace-name', name: null });
+        const old = windowTabs(win);
+        const fresh = openTab(win, os.homedir());
+        for (const t of old) closeTab(t.id);
+        toWindow(win, { type: 'focus-tab', tab: fresh.id });
+        send(ws, { type: 'toast', text: `Closed "${name}". Reopen it from Workspaces and every conversation resumes.` });
+        send(ws, { type: 'workspaces', list: listWorkspaces() });
+        return;
+      }
       if (m.type === 'delete-workspace' && typeof m.name === 'string') {
         deleteWorkspace(m.name);
         for (const [w, n] of windowWorkspace) if (n === m.name) { windowWorkspace.delete(w); toWindow(w, { type: 'workspace-name', name: null }); }
@@ -364,6 +443,16 @@ server.on('upgrade', (req, sock, head) => {
       }
       if (m.type === 'welcome') { void welcomeInfo(!!m.fresh).then((info) => send(ws, { type: 'welcome', ...info, workspaces: listWorkspaces() })); return; }
       if (m.type === 'reopen-tab') { reopenClosedTab(win); return; }
+      if (m.type === 'registrar-on') { setRegistrarOn(!!m.on); return; }
+      if (m.type === 'registrar-run') { runRegistrar(); return; }
+      if (m.type === 'registrar-forget' && typeof m.folder === 'string') { forgetDecision(m.folder, String(m.id)); return; }
+      if (m.type === 'registrar-flag' && typeof m.folder === 'string') {
+        // Dismiss a prior-art flag, or hand its note to the session it is for (typed, not sent).
+        const f = closeFlag(m.folder, String(m.id), m.send ? 'sent' : 'dismissed');
+        const target = f && m.send ? [...tabs.values()].find((t) => t.registrarInput()?.session === f.session) : null;
+        if (f && target) { target.draft(f.note); toWindow(target.windowId, { type: 'focus-tab', tab: target.id, raise: true }); }
+        return;
+      }
       if (m.type === 'new-tab') {
         const from = tabs.get(String(m.from));
         const tab = openTab(win, from?.cwd ?? os.homedir());
@@ -413,6 +502,7 @@ function shutdown(): void {
   if (worthSaving(all)) saveWorkspace({ name: 'Last session', active: 0, tabs: all.map(tabRecord) });
   for (const tab of tabs.values()) tab.dispose();
   stopProcHelper();
+  clearRecordTool();
   clearInstance();
   process.exit(0);
 }
@@ -436,6 +526,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
   try { port = await listen(PREFERRED_PORT); } catch { port = await listen(0); }
+  clearRecordTool();
   writeInstance(port, token);
   console.log(`claude-pane: ${pageUrl()}\n[timing] listening +${since()}`);
   if (APP_MODE) {

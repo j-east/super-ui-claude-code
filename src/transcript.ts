@@ -111,6 +111,16 @@ export function parseLine(line: string): Entry[] {
   if (d.type === 'system' && d.subtype === 'away_summary' && typeof d.content === 'string' && d.content.trim()) {
     return [{ kind: 'recap', id: d.uuid ?? Math.random().toString(36).slice(2), text: d.content.trim() }];
   }
+  // A message you typed while Claude was working, taken in mid-turn: Claude Code records it as an
+  // attachment, not as a user turn. (Task and agent notifications use the same record; skip those.)
+  if (d.type === 'attachment' && d.attachment?.type === 'queued_command' && d.attachment.origin?.kind === 'human' && !d.isSidechain) {
+    const p = d.attachment.prompt;
+    const qid: string = d.uuid ?? Math.random().toString(36).slice(2);
+    if (typeof p === 'string') return userString(qid, p);
+    if (!Array.isArray(p)) return [];
+    return p.flatMap((b: Block, i: number): Entry[] => b.type === 'text' && b.text ? userString(`${qid}:${i}`, b.text)
+      : b.type === 'image' ? [{ kind: 'note', id: `${qid}:${i}`, text: '[image]' }] : []);
+  }
   if ((d.type !== 'user' && d.type !== 'assistant') || d.isSidechain || d.isMeta) return [];
   const id: string = d.uuid ?? Math.random().toString(36).slice(2);
   const content = d.message?.content;

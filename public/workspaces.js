@@ -1,4 +1,5 @@
-// Workspaces modal: save this window's tabs under a name, reopen or delete saved ones.
+// Workspaces modal. A window with a workspace shows that workspace's properties (rename, what is in
+// it, close it); a window without one shows the saved list (name this window, reopen or delete).
 // The server owns the files; this only renders the list it sends and posts commands back.
 
 const h = (tag, cls, text) => {
@@ -19,13 +20,23 @@ const when = (iso) => {
 
 /**
  * @param {{ send: (m: object) => void, tabs: () => {title: string, active: boolean}[], activeId: () => string | undefined,
- *           onClose: () => void }} deps
+ *           onClose: () => void, tilde?: (p: string) => string }} deps
  */
-export function initWorkspaces({ send, tabs, activeId, onClose }) {
+export function initWorkspaces({ send, tabs, activeId, onClose, tilde = (p) => p }) {
   let list = [];
+  let current = null; // the workspace this window is, if any
   const dlg = h('dialog', 'ws-dialog');
   dlg.innerHTML = `
     <header><h2>Workspaces</h2><button class="ws-x" title="Close (Esc)">×</button></header>
+    <section class="ws-props" hidden>
+      <label for="ws-rename">Name</label>
+      <form class="ws-form ws-rename-form"><input id="ws-rename" autocomplete="off" spellcheck="false" maxlength="80">
+        <button class="primary" type="submit">Rename</button></form>
+      <div class="ws-autosave"><b>Saved automatically.</b> Tabs you open or close here are kept as you go. Nothing to save by hand.</div>
+      <dl class="ws-facts"></dl>
+      <div class="ws-foot"><button class="ws-exit" type="button">Close workspace</button>
+        <span class="ws-muted">Puts it away and closes its tabs. Reopen it later and every conversation resumes.</span></div>
+    </section>
     <section class="ws-save">
       <label for="ws-name">Save this window</label>
       <div class="ws-current"></div>
@@ -55,6 +66,54 @@ export function initWorkspaces({ send, tabs, activeId, onClose }) {
     send({ type: 'save-workspace', name, active: activeId() });
     close();
   });
+  // ----- properties of this window's workspace -----
+  const rename = $('#ws-rename');
+  const renameBtn = $('.ws-rename-form button');
+  const syncRename = () => { renameBtn.disabled = !rename.value.trim() || rename.value.trim() === current; };
+  rename.addEventListener('input', syncRename);
+  $('.ws-rename-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = rename.value.trim();
+    if (name && name !== current) send({ type: 'rename-workspace', name });
+  });
+  const exit = $('.ws-exit');
+  let exitArmed = null;
+  const disarmExit = () => { clearTimeout(exitArmed); exitArmed = null; exit.textContent = 'Close workspace'; exit.classList.remove('armed'); };
+  exit.onclick = () => {
+    if (!exitArmed) { // two steps: this ends the Claude sessions running in these tabs (they resume on reopen)
+      const n = tabs().length;
+      exit.textContent = `Close ${n} tab${n === 1 ? '' : 's'}?`; exit.classList.add('armed');
+      exitArmed = setTimeout(disarmExit, 3000);
+      return;
+    }
+    disarmExit();
+    send({ type: 'close-workspace' });
+    close();
+  };
+  function renderProps() {
+    const facts = $('.ws-facts');
+    facts.replaceChildren();
+    const row = (k, v) => { if (v) facts.append(h('dt', null, k), h('dd', null, v)); };
+    const saved = list.find((w) => w.name === current);
+    const t = tabs();
+    row('Tabs', `${t.length}: ${t.map((x) => x.title).join(' · ')}`);
+    if (saved) {
+      row(saved.folders.length === 1 ? 'Folder' : 'Folders', saved.folders.map(tilde).join(', '));
+      row('Started', when(saved.createdAt));
+      row('Last saved', when(saved.savedAt));
+      if (saved.auto) row('Kept', 'While it is among your recent workspaces. Rename it to keep it for good.');
+    }
+  }
+  function showView() {
+    $('.ws-props').hidden = !current;
+    $('.ws-save').hidden = $('.ws-saved').hidden = !!current;
+    $('h2').textContent = current ? 'Workspace' : 'Workspaces';
+    if (!current) return;
+    if (document.activeElement !== rename) rename.value = current;
+    syncRename();
+    renderProps();
+  }
+
   $('.ws-x').onclick = () => close();
   dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); }); // backdrop
   dlg.addEventListener('close', () => onClose());
@@ -74,7 +133,7 @@ export function initWorkspaces({ send, tabs, activeId, onClose }) {
     const box = $('.ws-list');
     box.replaceChildren();
     if (!list.length) { box.append(h('div', 'ws-empty', 'Nothing saved yet. Save this window above to reopen its sessions later.')); return; }
-    for (const w of list) {
+    for (const w of list.filter((x) => !x.covered)) {
       const card = h('div', 'ws-card');
       const info = h('button', 'ws-info');
       info.title = 'Open these tabs in this window and resume their Claude sessions';
@@ -113,10 +172,14 @@ export function initWorkspaces({ send, tabs, activeId, onClose }) {
       renderCurrent();
       renderList();
       syncSave();
+      disarmExit();
+      rename.value = current ?? '';
+      showView();
       dlg.showModal();
       send({ type: 'list-workspaces' });
     }
-    if (focusSave) { input.focus(); input.select(); }
+    if (current) { if (focusSave) { rename.focus(); rename.select(); } else $('.ws-x').focus(); }
+    else if (focusSave) { input.focus(); input.select(); }
     else ($('.ws-info') ?? input).focus();
   }
   function close() { if (dlg.open) dlg.close(); }
@@ -125,6 +188,8 @@ export function initWorkspaces({ send, tabs, activeId, onClose }) {
     open,
     close,
     get isOpen() { return dlg.open; },
-    setList(l) { list = l; if (dlg.open) { renderList(); syncSave(); } },
+    setList(l) { list = l; if (dlg.open) { renderList(); syncSave(); showView(); } },
+    /** This window became, stopped being, or was renamed as a workspace. */
+    setCurrent(name) { const was = current; current = name || null; if (dlg.open) { if (was !== current) rename.value = current ?? ''; showView(); } },
   };
 }

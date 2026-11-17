@@ -58,30 +58,43 @@ function excerpt(entries: Entry[], cwd: string): string {
 let chain: Promise<unknown> = Promise.resolve(); // one run at a time across all tabs
 const inFlight = new Set<string>();
 
-function run(input: string): Promise<Label | null> {
-  return findClaude().then((bin) => new Promise<Label | null>((res) => {
+/** One headless question to Sonnet: no tools, no MCP, no saved session. Returns the reply text, or null. */
+function call(system: string, input: string, timeout = TIMEOUT): Promise<string | null> {
+  return findClaude().then((bin) => new Promise<string | null>((res) => {
     // An npm install on Windows is a .cmd wrapper; our arguments wouldn't survive the command interpreter.
     if (!bin || /\.cmd$/i.test(bin)) return res(null);
     try { fs.mkdirSync(WORK, { recursive: true }); } catch { /* ignore */ }
     const p = spawn(bin, ['-p', '--model', 'sonnet', '--tools', '', '--no-session-persistence', '--strict-mcp-config',
-      '--setting-sources', '', '--output-format', 'json', '--system-prompt', SYSTEM], { cwd: WORK, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+      '--setting-sources', '', '--output-format', 'json', '--system-prompt', system], { cwd: WORK, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     let out = '';
-    const kill = setTimeout(() => p.kill('SIGKILL'), TIMEOUT);
+    const kill = setTimeout(() => p.kill('SIGKILL'), timeout);
     p.stdout.on('data', (d) => { out += d; });
     p.on('error', () => { clearTimeout(kill); res(null); });
     p.on('close', () => {
       clearTimeout(kill);
       try {
         const d = JSON.parse(out);
-        if (d.is_error || typeof d.result !== 'string') return res(null);
-        const j = JSON.parse(d.result.slice(d.result.indexOf('{'), d.result.lastIndexOf('}') + 1));
-        const label = String(j.label ?? '').trim().replace(/\.$/, '').slice(0, 48);
-        const summary = String(j.summary ?? '').trim().slice(0, 240);
-        res(label ? { label, summary } : null);
+        res(d.is_error || typeof d.result !== 'string' ? null : d.result);
       } catch { res(null); }
     });
     p.stdin.end(input);
   }));
+}
+/** The same call, queued behind any other (labels and the registrar share one line). */
+export function ask(system: string, input: string, timeout?: number): Promise<string | null> {
+  const next = chain.then(() => call(system, input, timeout));
+  chain = next.catch(() => null);
+  return next;
+}
+async function run(input: string): Promise<Label | null> {
+  const out = await call(SYSTEM, input);
+  if (!out) return null;
+  try {
+    const j = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
+    const label = String(j.label ?? '').trim().replace(/\.$/, '').slice(0, 48);
+    const summary = String(j.summary ?? '').trim().slice(0, 240);
+    return label ? { label, summary } : null;
+  } catch { return null; }
 }
 
 /** One label for these entries, without caching (also used by the test script). */

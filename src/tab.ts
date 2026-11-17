@@ -48,10 +48,10 @@ export class Tab {
   private cols = 120;
   private rows = 30;
 
-  constructor(readonly id: string, public windowId: string, cwd: string, private emit: Emit) {
+  constructor(readonly id: string, public windowId: string, cwd: string, private emit: Emit, env: Record<string, string> = {}) {
     this.shellCwd = cwd;
     const sh = shellCommand();
-    this.shell = new PtySession(sh.file, sh.args, cwd);
+    this.shell = new PtySession(sh.file, sh.args, cwd, { ...sh.env, ...env });
     this.shell.onData((data) => {
       if (Date.now() > this.ignoreUntil) this.lastWorkAt = Date.now();
       this.screen.write(data);
@@ -164,6 +164,13 @@ export class Tab {
   /** Claude is mid-task (printing), as opposed to waiting at its prompt. */
   get working(): boolean { return this.busy; }
   get labelText(): string | null { return this.label?.label ?? null; }
+  get savedLabel(): Label | null { return this.label; }
+  /** A reopened tab: show the label it was saved with right away; the session takes a few seconds to come back. */
+  seedLabel(l: Label): void {
+    if (this.label || typeof l?.label !== 'string') return;
+    this.label = { label: l.label.slice(0, 80), summary: String(l.summary ?? '').slice(0, 400) };
+    this.emit({ type: 'label', label: this.label, seeded: true });
+  }
   /** Session id of the transcript this tab is showing (its file name), if any. */
   get sessionId(): string | null {
     // Claude Code's own record for the running process is authoritative, once it has a transcript
@@ -207,6 +214,16 @@ export class Tab {
     return { tab: this.id, window: this.windowId, title: this.title, label: this.label, cwd: this.watch.current()!.cwd,
       state: this.dialog ? 'waiting' : this.busy ? 'working' : 'idle', since: this.idleSince, dialog: this.dialog };
   }
+
+  /** What the registrar reads: this session's id, label, folder and transcript. Null for a plain shell. */
+  registrarInput(): { session: string; tab: string; label: string; cwd: string; entries: Entry[] } | null {
+    const c = this.watch.current();
+    const sid = this.sessionId;
+    if (!c || !sid || !this.follower) return null;
+    return { session: sid, tab: this.id, label: this.label?.label ?? this.title, cwd: c.cwd, entries: this.follower.snapshot().entries };
+  }
+  /** Put text in Claude's input box without sending it (you read it and press Enter). */
+  draft(text: string): void { if (this.watch.current()) this.input(text.replace(/[\r\n]+/g, ' ')); }
 
   private setLabel(l: Label | null): void {
     if (JSON.stringify(l) === JSON.stringify(this.label)) return;
