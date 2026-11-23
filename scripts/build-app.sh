@@ -62,6 +62,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSArchitecturePriority</key><array><string>$ARCH</string></array>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Claude Code uses the microphone for voice dictation when you turn it on in a session. This app itself never records.</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
@@ -109,6 +110,7 @@ cat > "$ENT" <<ENTS
   <key>com.apple.security.cs.allow-jit</key><true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
   <key>com.apple.security.cs.disable-library-validation</key><true/>
+  <key>com.apple.security.device.audio-input</key><true/>
 </dict></plist>
 ENTS
 

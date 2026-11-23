@@ -96,8 +96,18 @@ export function initWorkspaces({ send, tabs, activeId, onClose, tilde = (p) => p
     const row = (k, v) => { if (v) facts.append(h('dt', null, k), h('dd', null, v)); };
     const saved = list.find((w) => w.name === current);
     const t = tabs();
-    row('Tabs', `${t.length}: ${t.map((x) => x.title).join(' · ')}`);
+    const names = saved?.sessions?.length ? saved.sessions : t.map((x) => ({ title: x.title, log: '' }));
+    const ul = h('ul', 'ws-tablist');
+    for (const x of names) {
+      const li = h('li', null, x.title);
+      if (x.log) li.append(h('code', 'ws-path', tilde(x.log)));
+      ul.append(li);
+    }
+    const dd = h('dd', 'ws-open');
+    dd.append(ul);
+    facts.append(h('dt', null, `Tabs (${names.length})`), dd);
     if (saved) {
+      row('Saved in', tilde(saved.file));
       row(saved.folders.length === 1 ? 'Folder' : 'Folders', saved.folders.map(tilde).join(', '));
       row('Started', when(saved.createdAt));
       row('Last saved', when(saved.savedAt));

@@ -104,6 +104,18 @@ if (listed.result?.tools?.[0]?.name !== 'check_record') throw new Error('record 
 const called = await (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'check_record', arguments: {} } })).json();
 if (!/^Project record for /.test(called.result?.content?.[0]?.text ?? '')) throw new Error('record tool gave no record: ' + JSON.stringify(called));
 if ((await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, {})).status !== 403) throw new Error('record tool answered without its token');
+const toolNames = (await (await rpc({ jsonrpc: '2.0', id: 4, method: 'tools/list' })).json()).result.tools.map((t) => t.name);
+if (!toolNames.includes('open_lane')) throw new Error('open_lane tool is not offered');
+const laned = await (await rpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'open_lane', arguments: { lane: 'Ops Lane', charter: 'Owns ops.', prompt: 'Audit the funnel.' } } })).json();
+if (laned.result?.isError || !/Opened the "ops-lane" lane/.test(laned.result?.content?.[0]?.text ?? '')) throw new Error('open_lane did not open a lane: ' + JSON.stringify(laned));
+{ const lt = msgs.find((m) => m.type === 'tab-open' && m.lane === 'ops-lane');
+  if (!lt || lt.group !== msgs.find((m) => m.type === 'tab-open').group) throw new Error('the lane tab did not open under the asking tab'); }
+// The heads-up hook: passed at launch, and its address answers only with the token.
+if (!argv.includes('--settings')) throw new Error('claude was started without the heads-up hook');
+const hookCmd = JSON.parse(fs.readFileSync(argv[argv.indexOf('--settings') + 1], 'utf8')).hooks.UserPromptSubmit[0].hooks[0].command;
+const notesUrl = hookCmd.match(/http:\S+/)[0];
+if ((await fetch(notesUrl, { headers: rt.headers })).status !== 200) throw new Error('heads-up address did not answer');
+if ((await fetch(notesUrl)).status !== 403) throw new Error('heads-up address answered without its token');
 console.log('ok   the record tool answers this tab, and only with its token');
 
 // While "claude" runs, nothing may be typed for you.

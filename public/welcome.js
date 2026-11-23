@@ -113,6 +113,21 @@ export function welcomeEl(view) {
     cols.append(box);
   }
 
+  // Past sessions that are not open in a tab: click one to resume it here.
+  const past = info?.sessions ?? [];
+  if (past.length) {
+    const box = h('div', 'wl-recents');
+    box.append(h('div', 'wl-h', 'Resume a session'));
+    for (const p of past) {
+      const row = h('div', 'wl-recent');
+      row.title = `Resume in this tab\n${p.title}\n${p.cwd}`;
+      row.append(h('b', 'wl-stitle', p.title), h('span', 'wl-rpath', p.cwd.split(/[\\/]/).filter(Boolean).pop() || p.cwd), h('span', 'wl-ago', ago(p.at)));
+      row.addEventListener('click', () => act({ type: 'resume-session', id: p.id, dir: p.cwd }));
+      box.append(row);
+    }
+    cols.append(box);
+  }
+
   if (cols.children.length) root.append(cols);
 
   const foot = h('div', 'wl-foot');

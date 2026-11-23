@@ -58,6 +58,16 @@ finished, who's still going. Answer questions right from the list.
 the project and saves itself as tabs come and go. Close it, reopen it tomorrow, and every conversation
 resumes. Closed a tab by accident? `⌘Z` brings it back.
 
+**Lanes.** When a session decides a piece of work belongs in its own focused session, it can open one
+beside itself. The tab on the left stays one row; its sessions line up across the top. The new session
+starts with its task typed in, waiting for you to press Enter.
+
+**Close tabs without losing them.** A Claude tab you close goes on a **Closed** list under your tabs, so
+it works as a to-do list: click an item to reopen it with its conversation resumed, or tick it off when
+it's dealt with. When the tab list gets long, **Clean up** reads your open sessions and shows them with
+checkboxes. The ones that look finished come ticked, each with a line on what was left. You decide, then
+close them in one click. Sessions that are working or waiting on you are never ticked for you.
+
 ## The Registrar: no boss, perfect memory
 
 Most multi-agent tools put an "orchestrator" in charge: one AI that hands out work to the others. We think
@@ -81,6 +91,11 @@ It just knows what everyone has done.
 Sessions can also check the record themselves. Every Claude you start in the app gets one extra,
 read-only tool: before it builds something new, it can ask what has already been decided. Your request
 always comes first; the lookup happens only when the session thinks it needs one.
+
+And when one session learns something another should know (a meeting date, a changed plan, an answer
+from a client), the Registrar passes it on as a **heads-up**. It never interrupts: the note waits and
+arrives alongside your next message to that session, marked as background, once. The Registrar panel
+lists every heads-up, and the session's page shows what it was told.
 
 The result: your sessions stay independent and fast, and you stop paying twice for the same work.
 
@@ -115,8 +130,8 @@ The app is free. It runs on your own Claude subscription. The tab labels and the
 amount of extra usage on your account, and you can switch either off.
 
 **Is my work private?**
-Everything runs on your own computer. Two features send anything anywhere: tab labels and the Registrar.
-Each sends short excerpts of your sessions (your requests, the files changed, Claude's latest replies) to
+Everything runs on your own computer. Three features send anything anywhere: tab labels, the Registrar,
+and Clean up (only when you click it). Each sends short excerpts of your sessions (your requests, the files changed, Claude's latest replies) to
 Claude on your own account, the same place your sessions already go. The Registrar's record is stored on
 your computer. Turn the Registrar off with the switch in its panel; see the
 [developer notes](docs/DEVELOPMENT.md) for the settings that turn off labels.
@@ -128,7 +143,8 @@ are Anthropic's trademarks.
 **Does it change how Claude Code works?**
 No. It runs the real Claude Code and reads the session history Claude Code already saves. It writes
 nothing into your Claude settings or your projects. Inside the app, Claude starts with one extra read-only
-tool for checking the Registrar's record; outside the app, nothing changes.
+tool for checking the Registrar's record and a hook that brings in its heads-ups; outside the app,
+nothing changes.
 
 **What is Lunatic mode?**
 A per-tab switch that answers Claude's prompts for you by pressing Enter on the first option. That means

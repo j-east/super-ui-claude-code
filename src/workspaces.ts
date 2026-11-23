@@ -4,14 +4,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DATA_DIR } from './platform.js';
+import { projectDirFor } from './transcript.js';
 
 const DIR = path.join(DATA_DIR, 'workspaces');
 
 /** `label`: the tab's written label when it was saved, so a reopened tab has its name before its session is back. */
-export interface WorkspaceTab { cwd: string; sessionId: string | null; title: string; claude: boolean; label?: { label: string; summary: string } | null }
+export interface WorkspaceTab { cwd: string; sessionId: string | null; title: string; claude: boolean; label?: { label: string; summary: string } | null;
+  /** Lanes: `id` is the tab's id when saved, `group` the id its row is keyed by, so a reopen can put lanes back under their tab. */
+  id?: string; group?: string; lane?: string; charter?: string }
 /** `auto`: the app named it (from the project folder); it has not been renamed by you. */
 export interface Workspace { name: string; savedAt: string; createdAt?: string; auto?: boolean; active: number; tabs: WorkspaceTab[] }
-export interface WorkspaceInfo { name: string; savedAt: string; createdAt: string; auto: boolean; tabs: number; titles: string[]; folders: string[]; covered: boolean }
+export interface WorkspaceInfo { name: string; savedAt: string; createdAt: string; auto: boolean; tabs: number; titles: string[]; folders: string[]; covered: boolean;
+  /** Where this workspace is saved, and each tab's name with its Claude Code session log (if it has one). */
+  file: string; sessions: { title: string; log: string }[] }
 
 const fileFor = (name: string) => path.join(DIR, `${name.replace(/[^\w .-]+/g, '_').trim().slice(0, 80) || 'workspace'}.json`);
 
@@ -63,6 +68,8 @@ export function listWorkspaces(): WorkspaceInfo[] {
   const owned = new Set(all.filter((w) => !SAFETY_NAME.test(w.name)).flatMap((w) => w.tabs.map((t) => t.sessionId).filter(Boolean)));
   return all.map((w) => ({ name: w.name, savedAt: w.savedAt, createdAt: w.createdAt ?? w.savedAt, auto: !!w.auto, tabs: w.tabs.length,
     titles: w.tabs.map((t) => t.label?.label || t.title), folders: [...new Set(w.tabs.map((t) => t.cwd))],
+    file: fileFor(w.name),
+    sessions: w.tabs.map((t) => ({ title: t.label?.label || t.title, log: t.sessionId ? path.join(projectDirFor(t.cwd), `${t.sessionId}.jsonl`) : '' })),
     covered: SAFETY_NAME.test(w.name) && w.tabs.every((t) => !t.sessionId || owned.has(t.sessionId)) }))
     .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }

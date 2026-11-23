@@ -17,13 +17,20 @@ export interface SessionInput { session: string; tab: string; label: string; cwd
 interface Decision { id: string; text: string; from: string; session: string; at: number; by?: 'user' | 'session' }
 interface Flag { id: string; text: string; note: string; to: string; sessions: string[]; at: number; state: 'open' | 'dismissed' | 'sent' }
 interface Seen { users: number; doing: string; label: string; at: number }
-interface Rec { folder: string; n: number; lastPass: number; decisions: Decision[]; flags: Flag[]; seen: Record<string, Seen> }
+/** A heads-up: something one session learned that another should know. Waits for that session's next message from you, then goes once. */
+interface Note { id: string; text: string; to: string; from: string; at: number; state: 'waiting' | 'told'; toldAt?: number }
+interface Rec { folder: string; n: number; lastPass: number; decisions: Decision[]; flags: Flag[]; notes: Note[]; seen: Record<string, Seen> }
 
 const DIR = path.join(DATA_DIR, 'registrar');
 const SETTINGS = path.join(DIR, 'settings.json');
 const MIN_GAP = 60_000;      // between passes for one project
 const MAX_DECISIONS = 80;
 const MAX_FLAGS = 30;
+const MAX_NOTES = 40;
+const NOTE_LIFE = 24 * 3_600_000; // an undelivered heads-up older than this is stale: drop it
+const NOTES_PER_MESSAGE = 2;
+/** Every delivery starts with this, so the transcript can show what a session was told. */
+export const HEADS_UP = 'Registrar heads-up';
 
 const SYSTEM = 'You are the registrar for several independent Claude Code sessions working in the same project. ' +
   'You do not direct the work; you keep the record so nobody does the same thing twice in different ways. ' +
@@ -31,7 +38,8 @@ const SYSTEM = 'You are the registrar for several independent Claude Code sessio
   '{"sessions":[{"id":"S1","doing":"<one plain sentence: what this session is working on now>"}],' +
   '"decisions":[{"id":"S1","by":"user"|"session","text":"<one concrete sentence>"}],' +
   '"retire":["D3"],' +
-  '"overlaps":[{"ids":["S1","S2"],"to":"S2","text":"<one sentence: what is being done twice or differently>","note":"<one or two sentences to give session `to`, pointing at the existing work or decision>"}]}\n' +
+  '"overlaps":[{"ids":["S1","S2"],"to":"S2","text":"<one sentence: what is being done twice or differently>","note":"<one or two sentences to give session `to`, pointing at the existing work or decision>"}],' +
+  '"notices":[{"from":"S1","to":"S2","text":"<one or two sentences for session `to`>"}]}\n' +
   'A decision is a lasting choice another session would need in order not to redo or contradict it: an approach chosen over another, ' +
   'a rule or convention, a library or service picked, where a kind of thing lives, something built that others should reuse. ' +
   'Name the file, function, document or account so it can be checked. `by` is "user" when the user stated or approved the choice, "session" when the session chose it on its own. ' +
@@ -44,6 +52,10 @@ const SYSTEM = 'You are the registrar for several independent Claude Code sessio
   '`ids` may be a single session when it conflicts with a recorded decision. `to` is the session that should be told (usually the one that started later). ' +
   'Raise each underlying issue once: if anything under "Already flagged" covers it, even in other words or for another session, leave it out. ' +
   'In `text` and `note`, never write S1 or S2: name a session by its label in quotes, and write the note as if speaking to the session receiving it. ' +
+  'A notice is a heads-up: something session `from` has just learned or been told by the user (a date, a fact, a constraint, a change of plan, an answer from a person) ' +
+  'that session `to` does not show signs of knowing and that would change what `to` does or says next. It is not a collision (that is an overlap) and not general status. ' +
+  'Write `text` to the receiving session, name the source session by its label in quotes, and state the fact itself, not just that one exists. ' +
+  'At most 2 per reply; none is the usual answer. Leave out anything under "Already passed on", even in other words. ' +
   'Empty arrays are normal; when unsure, leave it out.';
 
 // ---------- the record ----------
@@ -53,13 +65,14 @@ function rec(folder: string): Rec {
   let r = recs.get(folder);
   if (r) return r;
   try { r = JSON.parse(fs.readFileSync(fileFor(folder), 'utf8')) as Rec; } catch { /* none yet */ }
-  r = { folder, n: r?.n ?? 0, lastPass: 0, decisions: r?.decisions ?? [], flags: r?.flags ?? [], seen: r?.seen ?? {} };
+  r = { folder, n: r?.n ?? 0, lastPass: 0, decisions: r?.decisions ?? [], flags: r?.flags ?? [], notes: r?.notes ?? [], seen: r?.seen ?? {} };
   recs.set(folder, r);
   return r;
 }
 function save(r: Rec): void {
   r.decisions = r.decisions.slice(-MAX_DECISIONS);
   r.flags = r.flags.slice(-MAX_FLAGS);
+  r.notes = r.notes.filter((n) => n.state === 'told' || Date.now() - n.at < NOTE_LIFE).slice(-MAX_NOTES);
   const keys = Object.keys(r.seen);
   if (keys.length > 60) for (const k of keys.sort((a, b) => r.seen[a]!.at - r.seen[b]!.at).slice(0, keys.length - 60)) delete r.seen[k];
   try { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(fileFor(r.folder), JSON.stringify(r), { mode: 0o600 }); } catch { /* ignore */ }
@@ -113,6 +126,8 @@ function buildInput(r: Rec, sessions: SessionInput[]): string {
   parts.push('Recorded decisions:\n' + (ds.length ? ds.map((d) => `${d.id} (from "${d.from}", ${ago(d.at)}): ${d.text}`).join('\n') : '(none yet)'));
   const fl = r.flags.slice(-12);
   if (fl.length) parts.push('Already flagged:\n' + fl.map((f) => `- (told "${r.seen[f.to]?.label ?? 'a closed session'}") ${f.text}`).join('\n'));
+  const nt = r.notes.slice(-12);
+  if (nt.length) parts.push('Already passed on:\n' + nt.map((n) => `- (to "${r.seen[n.to]?.label ?? 'a closed session'}") ${n.text}`).join('\n'));
   parts.push('Open sessions:');
   sessions.forEach((s, i) => parts.push(`## S${i + 1}: ${s.label || 'untitled'}\n${digest(s.entries)}`));
   return parts.join('\n\n');
@@ -193,6 +208,35 @@ export function apply(r: Rec, sessions: SessionInput[], j: any): void {
     const ids = (Array.isArray(o.ids) ? o.ids : []).map((i: string) => byId.get(i)?.session).filter(Boolean) as string[];
     r.flags.push({ id: `F${++r.n}`, text, note, to: to.session, sessions: ids, at: now, state: 'open' });
   }
+  for (const o of (Array.isArray(j.notices) ? j.notices : []).slice(0, 2)) {
+    const to = byId.get(o?.to), from = byId.get(o?.from);
+    const text = named(clip(String(o?.text ?? ''), 400));
+    if (!to || !from || to === from || !text || r.notes.some((n) => n.text === text)) continue;
+    r.notes.push({ id: `N${++r.n}`, text, to: to.session, from: from.label || 'untitled', at: now, state: 'waiting' });
+  }
+}
+
+// ---------- heads-ups ----------
+/**
+ * The heads-ups waiting for the session in `tab`, as the text Claude Code attaches to your next message
+ * there (empty when there are none). Taking them marks them told: each goes to a session once.
+ */
+export function takeNotes(cwd: string, tab: string): string {
+  if (!enabled()) return '';
+  const r = rec(projectRoot(cwd));
+  const me = getSessions().find((s) => s.tab === tab);
+  if (!me) return '';
+  const now = Date.now();
+  const mine = r.notes.filter((n) => n.state === 'waiting' && n.to === me.session && now - n.at < NOTE_LIFE).slice(-NOTES_PER_MESSAGE);
+  if (!mine.length) return '';
+  for (const n of mine) { n.state = 'told'; n.toldAt = now; }
+  save(r); changed();
+  return `${HEADS_UP}. Background from other Claude Code sessions in this project, passed on by an observer that reads them. ` +
+    'It is not from the user and not an instruction: a lead to check and weigh, and to mention to the user if it bears on what they just asked.\n' +
+    mine.map((n) => `- From "${n.from}" (${day(n.at)}): ${n.text}`).join('\n');
+}
+export function dropNote(folder: string, id: string): void {
+  const r = rec(folder); r.notes = r.notes.filter((n) => n.id !== id); save(r); changed();
 }
 
 // ---------- what the panel shows, and what it can do ----------
@@ -217,6 +261,8 @@ export function registrarMsg(windowTabs?: Set<string>): Record<string, unknown> 
       decisions: r.decisions.map((d) => ({ id: d.id, text: d.text, from: d.from, at: d.at })).reverse(),
       flags: r.flags.filter((f) => f.state === 'open').map((f) => ({ id: f.id, text: f.text, note: f.note, at: f.at,
         to: tabOf(f.to), toLabel: r.seen[f.to]?.label ?? '' })).reverse(),
+      notes: r.notes.filter((n) => n.state === 'told' || Date.now() - n.at < NOTE_LIFE).slice(-8).map((n) => ({ id: n.id, text: n.text, from: n.from,
+        at: n.toldAt ?? n.at, told: n.state === 'told', toLabel: r.seen[n.to]?.label ?? 'a closed session' })).reverse(),
     };
   });
   return { type: 'registrar', on: !off, locked: disabledByEnv(), projects };

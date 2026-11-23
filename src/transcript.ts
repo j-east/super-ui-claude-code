@@ -121,6 +121,11 @@ export function parseLine(line: string): Entry[] {
     return p.flatMap((b: Block, i: number): Entry[] => b.type === 'text' && b.text ? userString(`${qid}:${i}`, b.text)
       : b.type === 'image' ? [{ kind: 'note', id: `${qid}:${i}`, text: '[image]' }] : []);
   }
+  // What the Registrar told this session alongside one of your messages (see takeNotes in registrar.ts).
+  if (d.type === 'attachment' && d.attachment?.type === 'hook_success' && typeof d.attachment.content === 'string' && d.attachment.content.startsWith('Registrar heads-up')) {
+    const lines = d.attachment.content.split('\n').slice(1).join('\n').trim();
+    return lines ? [{ kind: 'note', id: d.uuid ?? Math.random().toString(36).slice(2), text: `The Registrar told this session:\n${lines}` }] : [];
+  }
   if ((d.type !== 'user' && d.type !== 'assistant') || d.isSidechain || d.isMeta) return [];
   const id: string = d.uuid ?? Math.random().toString(36).slice(2);
   const content = d.message?.content;

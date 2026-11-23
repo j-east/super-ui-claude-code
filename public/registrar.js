@@ -82,6 +82,20 @@ export function initRegistrar({ button, send, tilde, onClose }) {
         r.append(t);
         panel.append(r);
       }
+      if (p.notes?.length) {
+        panel.append(h('h3', null, `Heads-ups (${p.notes.length})`));
+        for (const n of p.notes) {
+          const r = h('div', 'reg-row');
+          const t = h('div', 'reg-text', n.text);
+          t.append(h('span', 'reg-meta', n.told ? `Told "${n.toLabel}" ${ago(n.at)} · from ${n.from}`
+            : `Waiting for your next message in "${n.toLabel}" · from ${n.from}`));
+          const x = h('button', 'reg-x', '×');
+          x.title = n.told ? 'Remove from this list (the session has already read it)' : 'Do not pass this on';
+          x.onclick = () => send({ type: 'registrar-note-drop', folder: p.folder, id: n.id });
+          r.append(t, x);
+          panel.append(r);
+        }
+      }
       panel.append(h('h3', null, `Decisions on record (${p.decisions.length})`));
       if (!p.decisions.length) panel.append(h('div', 'reg-empty', 'None yet. They appear as sessions settle things.'));
       for (const d of p.decisions) {

@@ -29,8 +29,8 @@ const PS_INIT = '$global:__cpPrompt = $function:prompt; function global:prompt {
 
 // ---------- `claude` in a tab ----------
 // You type `claude` as always. In our tabs it is a small shell function that adds a few flags when it
-// starts a session: the tab's record-tool config, a note saying the tool exists, and leave to call that
-// one read-only tool without asking (see recordtool.ts).
+// starts a session: the tab's record-tool config, a note saying the tool exists, leave to call that
+// one read-only tool without asking, and a hook that brings in the Registrar's heads-ups (see recordtool.ts).
 // Everything else passes through untouched: subcommands (`claude update`), print mode, --help.
 // If CLAUDE_PANE_MCP is not set (the tool is off) the function is plain `claude`.
 // zsh and PowerShell only; in any other shell `claude` is just Claude Code, without the tool.
@@ -39,12 +39,14 @@ function claude {
   if [[ -z "$CLAUDE_PANE_MCP" || ! -f "$CLAUDE_PANE_MCP" ]]; then command claude "$@"; return; fi
   local a
   for a in "$@"; do
-    case "$a" in -p|--print|--mcp-config|--mcp-config=*|--strict-mcp-config|-h|--help|-v|--version) command claude "$@"; return;; esac
+    case "$a" in -p|--print|--mcp-config|--mcp-config=*|--strict-mcp-config|--settings|--settings=*|-h|--help|-v|--version) command claude "$@"; return;; esac
   done
   # A bare lowercase word first is a subcommand (claude mcp list, claude update).
   if [[ "$1" =~ ^[a-z][a-z-]*$ ]]; then command claude "$@"; return; fi
   # Order matters: the first two flags take a list, so each must be followed by another flag.
-  command claude --allowedTools mcp__registrar__check_record --mcp-config "$CLAUDE_PANE_MCP" --append-system-prompt "$CLAUDE_PANE_NOTE" "$@"
+  local -a hook
+  if [[ -n "$CLAUDE_PANE_SETTINGS" && -f "$CLAUDE_PANE_SETTINGS" ]]; then hook=(--settings "$CLAUDE_PANE_SETTINGS"); fi
+  command claude --allowedTools mcp__registrar__check_record --mcp-config "$CLAUDE_PANE_MCP" --append-system-prompt "$CLAUDE_PANE_NOTE" "\${hook[@]}" "$@"
 }
 fi
 `;
@@ -87,9 +89,10 @@ const PS_CLAUDE = '; if ($env:CLAUDE_PANE_MCP) { function global:claude { ' +
   '$c = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1; ' +
   'if (-not $c) { Write-Error \'claude is not installed or not on PATH\'; return }; ' +
   '$plain = (-not (Test-Path -LiteralPath $env:CLAUDE_PANE_MCP)) -or ' +
-  '(@($args | Where-Object { $_ -is [string] -and (@(\'-p\',\'--print\',\'--mcp-config\',\'--strict-mcp-config\',\'-h\',\'--help\',\'-v\',\'--version\') -contains $_) }).Count -gt 0) -or ' +
+  '(@($args | Where-Object { $_ -is [string] -and (@(\'-p\',\'--print\',\'--mcp-config\',\'--strict-mcp-config\',\'--settings\',\'-h\',\'--help\',\'-v\',\'--version\') -contains $_) }).Count -gt 0) -or ' +
   '($args.Count -gt 0 -and $args[0] -cmatch \'^[a-z][a-z-]*$\'); ' +
-  'if ($plain) { & $c.Source @args } else { & $c.Source --allowedTools mcp__registrar__check_record --mcp-config $env:CLAUDE_PANE_MCP --append-system-prompt $env:CLAUDE_PANE_NOTE @args } } }';
+  '$hook = @(); if ($env:CLAUDE_PANE_SETTINGS -and (Test-Path -LiteralPath $env:CLAUDE_PANE_SETTINGS)) { $hook = @(\'--settings\', $env:CLAUDE_PANE_SETTINGS) }; ' +
+  'if ($plain) { & $c.Source @args } else { & $c.Source --allowedTools mcp__registrar__check_record --mcp-config $env:CLAUDE_PANE_MCP --append-system-prompt $env:CLAUDE_PANE_NOTE @hook @args } } }';
 
 /** The shell a tab runs. macOS: your login shell. Windows: PowerShell 7 if installed, else Windows PowerShell. */
 export function shellCommand(): { file: string; args: string[]; env: Record<string, string> } {

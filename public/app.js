@@ -7,6 +7,7 @@ import { attachTabDrag, isDragging, consumeDragClick, endDrag } from './tabdrag.
 import { Pane } from './pane.js';
 import { initInbox } from './inbox.js';
 import { initRegistrar } from './registrar.js';
+import { initLater } from './later.js';
 
 const $ = (id) => document.getElementById(id);
 // Hosted by the native app? (WKWebView script bridge) Otherwise a plain browser window.
@@ -57,7 +58,51 @@ function focusPane(p) {
   if (active) { active.attention = null; active.term.focus(); touch(active.id); }
   renderTabs();
 }
-function touch(id) { const i = recent.indexOf(id); if (i >= 0) recent.splice(i, 1); recent.unshift(id); }
+function touch(id) {
+  const i = recent.indexOf(id); if (i >= 0) recent.splice(i, 1); recent.unshift(id);
+  const v = views.get(id); if (v) lastInGroup.set(v.group, id);
+}
+
+// ---------- lanes: a tab and the sessions it opened share one row in the list ----------
+// Tabs with the same `group` are one row on the left; the row's sessions are the strip across the top.
+const lastInGroup = new Map(); // group -> the tab of it you looked at last
+const groupOf = (v) => [...views.values()].filter((x) => x.group === v.group);
+/** The session a row is named after: the one that opened the lanes, or the oldest left. */
+const headOf = (members) => members.find((x) => x.id === x.group) ?? members[0];
+const groupCount = () => new Set([...views.values()].map((v) => v.group)).size;
+const stage = document.createElement('div');
+stage.id = 'stage';
+const lanesEl = document.createElement('div');
+lanesEl.id = 'lanes'; lanesEl.hidden = true;
+panesEl.replaceWith(stage);
+stage.append(lanesEl, panesEl);
+function renderLanes() {
+  const members = active ? groupOf(active) : [];
+  const show = members.length > 1;
+  if (lanesEl.hidden === show) requestAnimationFrame(() => { for (const p of panes) p.view?.layout(); });
+  lanesEl.hidden = !show;
+  lanesEl.replaceChildren();
+  if (!show) return;
+  for (const v of members) {
+    const c = document.createElement('div');
+    c.className = 'lane' + (v === active ? ' active' : shown(v) ? ' shown' : '') + (v.attention ? ' attn' : '');
+    const dot = document.createElement('span');
+    dot.className = 'tdot' + (v.busy ? ' busy' : '') + (v.attention === 'input' ? ' input' : v.attention ? ' done' : '');
+    const name = document.createElement('span');
+    name.className = 'lane-name';
+    name.textContent = v.lane || 'main';
+    const what = document.createElement('span');
+    what.className = 'lane-what';
+    what.textContent = tabLabel(v) || '';
+    const close = document.createElement('button');
+    close.className = 'tclose'; close.textContent = '×'; close.title = 'Close this session (ends its shell)';
+    close.onclick = (e) => { e.stopPropagation(); send({ type: 'close-tab', tab: v.id }); };
+    c.title = `${v.lane ? `Lane: ${v.lane}` : 'The session that opened these lanes'}${tabLabel(v) ? `\n${tabLabel(v)}` : ''}`;
+    c.onclick = () => activate(v.id);
+    c.append(dot, name, what, close);
+    lanesEl.append(c);
+  }
+}
 /** The tab to fill a pane with: most recently shown one that isn't on screen. */
 const nextUnshown = () => [...recent, ...views.keys()].map((id) => views.get(id)).find((v) => v && !shown(v)) ?? null;
 
@@ -122,15 +167,23 @@ function renderTabs() {
   const box = $('tabs');
   box.replaceChildren();
   let i = 0;
-  for (const v of views.values()) {
+  const done = new Set();
+  for (const first of views.values()) {
+    if (done.has(first.group)) continue;
+    done.add(first.group);
+    // One row per group, named after its head; the row lights up for any of its sessions.
+    const members = groupOf(first);
+    const v = headOf(members);
+    const attn = members.find((x) => x.attention === 'input')?.attention ?? members.find((x) => x.attention)?.attention ?? null;
+    const busy = members.some((x) => x.busy);
     i++;
     const t = document.createElement('div');
-    t.className = 'tab' + (v === active ? ' active' : shown(v) ? ' shown' : '') + (v.attention ? ' attn' : '');
+    t.className = 'tab' + (members.includes(active) ? ' active' : members.some(shown) ? ' shown' : '') + (attn ? ' attn' : '');
     const n = i;
     t.onmouseenter = () => showTabCard(t, v, n);
     t.onmouseleave = hideTabCard;
     const dot = document.createElement('span');
-    dot.className = 'tdot' + (v.busy ? ' busy' : '') + (v.attention === 'input' ? ' input' : v.attention ? ' done' : '');
+    dot.className = 'tdot' + (busy ? ' busy' : '') + (attn === 'input' ? ' input' : attn ? ' done' : '');
     const name = document.createElement('span');
     name.className = 'ttext';
     const main = document.createElement('span');
@@ -138,19 +191,26 @@ function renderTabs() {
     const head = tabLabel(v) || v.title || v.name;
     main.textContent = (v.mode === 'claude' ? '✳ ' : '') + head + (v.lunatic ? ' 🌀' : '');
     name.append(main);
-    if (head !== v.name) { const sub = document.createElement('span'); sub.className = 'tsub'; sub.textContent = v.name; name.append(sub); }
+    const lanes = members.filter((x) => x !== v).map((x) => x.lane || 'session');
+    if (head !== v.name || lanes.length) {
+      const sub = document.createElement('span'); sub.className = 'tsub';
+      sub.textContent = lanes.length ? `${v.name} · lanes: ${lanes.join(', ')}` : v.name;
+      name.append(sub);
+    }
     const close = document.createElement('button');
-    close.className = 'tclose'; close.textContent = '×'; close.title = 'Close tab (ends its shell)';
-    close.onclick = (e) => { e.stopPropagation(); send({ type: 'close-tab', tab: v.id }); };
+    close.className = 'tclose'; close.textContent = '×';
+    close.title = members.length > 1 ? `Close this tab and its ${members.length - 1} lane${members.length > 2 ? 's' : ''} (ends their shells)` : 'Close tab (ends its shell)';
+    close.onclick = (e) => { e.stopPropagation(); for (const x of members) send({ type: 'close-tab', tab: x.id }); };
     t.append(dot, name, close);
     t.dataset.id = v.id;
-    t.onclick = () => { if (!consumeDragClick()) activate(v.id); };
+    t.onclick = () => { if (!consumeDragClick()) activate(members.includes(active) ? active.id : views.has(lastInGroup.get(v.group)) && views.get(lastInGroup.get(v.group)).group === v.group ? lastInGroup.get(v.group) : v.id); };
     attachTabDrag(t, { bar: box, onReorder: reorderTabs, onDetach: detachTab, onDone: renderTabs, onOut: dropHint });
     box.append(t);
   }
   box.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   $('bar-title').textContent = active ? (tabLabel(active) || active.title || active.name) : '';
   $('no-tabs').hidden = views.size > 0;
+  renderLanes();
   for (const p of panes) p.update();
   const waiting = [...views.values()].filter((v) => v.attention).length;
   const base = !active ? 'Claude Code Super UI'
@@ -195,9 +255,13 @@ $('tabs').addEventListener('pointerdown', hideTabCard);
 
 /** New tab order after a drag within the bar (also what ⌘1..9 follow). */
 function reorderTabs(ids) {
-  const order = ids.map((id) => [id, views.get(id)]).filter(([, v]) => v);
+  // A row stands for its whole group: its lanes travel with it, in their own order.
+  const all = [...views.values()];
+  const order = ids.map((id) => views.get(id)).filter(Boolean).flatMap((v) => all.filter((x) => x.group === v.group));
+  for (const v of all) if (!order.includes(v)) order.push(v);
   views.clear();
-  for (const [id, v] of order) views.set(id, v);
+  for (const v of order) views.set(v.id, v);
+  send({ type: 'tab-order', ids: order.map((v) => v.id) }); // so the workspace and a reload keep it
 }
 
 /**
@@ -221,8 +285,8 @@ function detachTab(id, at) {
     return;
   }
   if (at && !t) return; // released inside the window, but not on a drop target (e.g. the left half): nothing
-  if (native) { native.postMessage({ type: 'tab-dropped', tab: id, only: views.size === 1 }); return; }
-  if (views.size === 1) return; // browser: nothing to split off
+  if (native) { native.postMessage({ type: 'tab-dropped', tab: id, only: groupCount() === 1 }); return; }
+  if (groupCount() === 1) return; // browser: nothing to split off
   const w = crypto.randomUUID();
   window.open(`/?t=${params.get('t')}&w=${w}&detached=1`, '_blank', 'popup,width=1180,height=820');
   send({ type: 'move-tab', tab: id, to: w });
@@ -358,7 +422,7 @@ const typingInField = () => {
   return !!a && (a.tagName === 'INPUT' || (a.tagName === 'TEXTAREA' && !a.closest('.xterm')) || a.isContentEditable);
 };
 document.addEventListener('keydown', (e) => {
-  if (workspaces.isOpen) return; // the modal handles its own keys
+  if (workspaces.isOpen || later.isOpen) return; // the modal handles its own keys
   if (e.metaKey && !e.shiftKey && e.key === 'z' && !typingInField()) { send({ type: 'reopen-tab' }); e.preventDefault(); e.stopPropagation(); return; } // ⌘Z reopen closed tab
   if (e.metaKey && e.key === 'i') { inbox.toggle(); e.preventDefault(); e.stopPropagation(); return; } // ⌘I inbox
   if (inbox.isOpen) { if (e.key === 'Escape') { inbox.close(); e.preventDefault(); e.stopPropagation(); } return; }
@@ -383,13 +447,14 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Enter') { send({ type: 'input', tab: active.id, data: '\r' }); e.preventDefault(); }
 }, true);
 document.addEventListener('mouseup', (e) => {
-  if (workspaces.isOpen || inbox.isOpen || registrar.isOpen || e.target.closest('select, button, dialog, .inbox')) return;
+  if (workspaces.isOpen || later.isOpen || inbox.isOpen || registrar.isOpen || e.target.closest('select, button, dialog, .inbox')) return;
   if (!String(window.getSelection())) active?.term.focus();
 });
 
 // ---------- socket ----------
 let ws;
 function send(m) { if (ws?.readyState === 1) ws.send(JSON.stringify(m)); }
+const later = initLater({ send, box: $('later'), claudeTabs: () => [...views.values()].filter((v) => v.mode === 'claude').length });
 
 function onMessage(m) {
   if (m.type === 'hello') {
@@ -403,6 +468,8 @@ function onMessage(m) {
   }
   if (m.type === 'workspaces') { workspaces.setList(m.list); setWelcomeWorkspaces(m.list); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'inbox') { inbox.setItems(m.items); return; }
+  if (m.type === 'later') { later.setItems(m.items); return; }
+  if (m.type === 'cleanup') { later.setRows(m.rows); return; }
   if (m.type === 'registrar') { registrar.setState(m); return; }
   if (m.type === 'welcome') { setWelcomeInfo(m); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'toast') { toast(m.text); return; }
@@ -428,6 +495,7 @@ function onMessage(m) {
     views.get(m.tab)?.dispose();
     const v = new TabView(m.tab, { send, theme: theme.term, home, screen: m.screen, pane: focused });
     views.set(m.tab, v);
+    v.group = m.group ?? m.tab; v.lane = m.lane ?? '';
     v.setMode(m.mode, m.cwd);
     v.reset(m.entries);
     v.setQueue(m.queue ?? []);

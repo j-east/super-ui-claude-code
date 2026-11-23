@@ -33,6 +33,11 @@ export class Tab {
   private promptAt = -1;
   private promptCache: ReturnType<Screen['prompt']> | undefined;
   lunatic = false;
+  /** Tabs with the same `group` are one row in the tab list: a session and the lanes it opened. Default: its own id. */
+  group = '';
+  /** The lane this tab runs, if a session opened it as one; `charter` is that lane's scope, told to Claude at launch. */
+  lane = '';
+  charter = '';
   private dialog: Dialog | null = null; // the question Claude Code is showing, if any
   private dialogAt = -1;
   private idleSince = Date.now();       // when Claude last stopped working (for the inbox)
@@ -102,7 +107,8 @@ export class Tab {
   snapshot(): Record<string, unknown> {
     const snap = this.follower?.snapshot();
     return { type: 'tab-open', screen: this.screen.snapshot(), file: snap?.file ? path.basename(snap.file) : null,
-      entries: snap?.entries ?? [], queue: snap?.queue ?? [], lunatic: this.lunatic, busy: this.busy, snapRows: this.snapRows, label: this.label, dialog: this.dialog, ...this.modeFields() };
+      entries: snap?.entries ?? [], queue: snap?.queue ?? [], lunatic: this.lunatic, busy: this.busy, snapRows: this.snapRows, label: this.label, dialog: this.dialog,
+      group: this.group || this.id, lane: this.lane, ...this.modeFields() };
   }
 
   input(data: string): void {
@@ -221,6 +227,14 @@ export class Tab {
     const sid = this.sessionId;
     if (!c || !sid || !this.follower) return null;
     return { session: sid, tab: this.id, label: this.label?.label ?? this.title, cwd: c.cwd, entries: this.follower.snapshot().entries };
+  }
+  get hasDialog(): boolean { return !!this.dialog; }
+  /** What Clean up reads to judge whether this tab can be closed. Null for a plain shell. */
+  cleanupInput(): { tab: string; label: string; cwd: string; state: 'working' | 'waiting' | 'idle'; idleMin: number; entries: Entry[] } | null {
+    const c = this.watch.current();
+    if (!c || !this.sessionId || !this.follower) return null;
+    return { tab: this.id, label: this.label?.label ?? this.title, cwd: c.cwd, state: this.dialog ? 'waiting' : this.busy ? 'working' : 'idle',
+      idleMin: Math.round((Date.now() - this.idleSince) / 60_000), entries: this.follower.snapshot().entries };
   }
   /** Put text in Claude's input box without sending it (you read it and press Enter). */
   draft(text: string): void { if (this.watch.current()) this.input(text.replace(/[\r\n]+/g, ' ')); }
