@@ -2,7 +2,7 @@
 import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
 import { TabView } from './tabview.js';
 import { initWorkspaces } from './workspaces.js';
-import { setWelcomeInfo, setWelcomeWorkspaces } from './welcome.js';
+import { setWelcomeInfo, setWelcomeWorkspaces, setFound } from './welcome.js';
 import { attachTabDrag, isDragging, consumeDragClick, endDrag } from './tabdrag.js';
 import { Pane } from './pane.js';
 import { initInbox } from './inbox.js';
@@ -47,12 +47,18 @@ function newPane() {
   $('split-btn').classList.toggle('on', panes.length > 1);
   return p;
 }
-const paneOf = (v) => panes.find((p) => p.view === v) ?? null;
+const paneOf = (v) => panes.find((p) => p.view === v) ?? (dockPane?.view === v ? dockPane : null);
+/** The sessions that are tabs: every one but the Steward, which lives in its own panel on the right. */
+const tabViews = () => [...views.values()].filter((v) => v.role !== 'steward');
+const stewardView = () => [...views.values()].find((v) => v.role === 'steward') ?? null;
+/** The session your typing goes to: the Steward while you are working in its panel, else the active tab. */
+const kb = () => (dockFocus && dockPane?.view ? dockPane.view : active);
 const shown = (v) => !!paneOf(v);
 
 function focusPane(p) {
   if (focused && focused !== p) focused.setFocused(false);
   focused = p;
+  setDockFocus(false);
   p.setFocused(panes.length > 1);
   active = p.view;
   if (active) { active.attention = null; active.term.focus(); touch(active.id); }
@@ -104,7 +110,7 @@ function renderLanes() {
   }
 }
 /** The tab to fill a pane with: most recently shown one that isn't on screen. */
-const nextUnshown = () => [...recent, ...views.keys()].map((id) => views.get(id)).find((v) => v && !shown(v)) ?? null;
+const nextUnshown = () => [...recent, ...views.keys()].map((id) => views.get(id)).find((v) => v && v.role !== 'steward' && !shown(v)) ?? null;
 
 /** Split in two (the new right pane shows `id`, or the most recent other tab, or a new tab); or unsplit. */
 function split(id) {
@@ -156,6 +162,7 @@ function unsplit(gone) {
 function activate(id) {
   const v = views.get(id);
   if (!v) return;
+  if (v.role === 'steward') { openDock(true); return; }
   const holder = paneOf(v);
   if (holder) { if (holder !== focused) focusPane(holder); else { active = v; renderTabs(); } return; }
   focused.show(v);
@@ -168,7 +175,7 @@ function renderTabs() {
   box.replaceChildren();
   let i = 0;
   const done = new Set();
-  for (const first of views.values()) {
+  for (const first of tabViews()) {
     if (done.has(first.group)) continue;
     done.add(first.group);
     // One row per group, named after its head; the row lights up for any of its sessions.
@@ -209,9 +216,14 @@ function renderTabs() {
   }
   box.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   $('bar-title').textContent = active ? (tabLabel(active) || active.title || active.name) : '';
-  $('no-tabs').hidden = views.size > 0;
+  $('no-tabs').hidden = tabViews().length > 0;
   renderLanes();
   for (const p of panes) p.update();
+  dockPane.update();
+  const st = stewardView();
+  $('steward-btn').classList.toggle('on', !dock.hidden);
+  $('steward-btn').classList.toggle('attn', !!st?.attention && dock.hidden);
+  dockDot.className = 'tdot' + (st?.busy ? ' busy' : '');
   const waiting = [...views.values()].filter((v) => v.attention).length;
   const base = !active ? 'Claude Code Super UI'
     : active.title ? `${active.title} · ${active.name}`
@@ -324,6 +336,45 @@ const toggleSidebar = () => setSidebar(!document.body.classList.contains('side-c
 $('side-btn').onclick = toggleSidebar;
 document.body.classList.toggle('side-collapsed', localStorage.getItem('sideCollapsed') === '1');
 
+// Drag the edge of the tab list to resize it; double-click to go back to the default width.
+{
+  const grip = $('side-grip');
+  const relayout = () => { for (const p of panes) p.view?.layout(); };
+  const setW = (w) => {
+    if (w) document.body.style.setProperty('--side-w', `${w}px`); else document.body.style.removeProperty('--side-w');
+  };
+  const saved = Number(localStorage.getItem('sideWidth'));
+  if (saved >= 150 && saved <= 600) setW(saved);
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    document.body.classList.add('side-drag');
+    const left = $('sidebar').getBoundingClientRect().left;
+    let w = 0;
+    const move = (ev) => {
+      w = Math.round(Math.max(150, Math.min(ev.clientX - left, 600, window.innerWidth - 360)));
+      setW(w);
+    };
+    const stop = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', stop);
+      grip.removeEventListener('pointercancel', stop);
+      document.body.classList.remove('side-drag');
+      if (w) { try { localStorage.setItem('sideWidth', String(w)); } catch { /* private mode */ } }
+      relayout();
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', stop);
+    grip.addEventListener('pointercancel', stop);
+  });
+  grip.addEventListener('dblclick', () => {
+    setW(0);
+    try { localStorage.removeItem('sideWidth'); } catch { /* private mode */ }
+    relayout();
+  });
+}
+
 // ---------- alerts ----------
 document.addEventListener('click', () => {
   if (!native && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
@@ -383,7 +434,7 @@ function toast(text) {
 
 // ---------- commands (also called by the native app's menus) ----------
 function cycle(step) {
-  const ids = [...views.keys()];
+  const ids = tabViews().map((v) => v.id);
   if (!ids.length || !active) return;
   activate(ids[(ids.indexOf(active.id) + step + ids.length) % ids.length]);
 }
@@ -410,7 +461,7 @@ window.cp = {
   moveTab: (tab, to) => send({ type: 'move-tab', tab: String(tab), to: String(to) }),
   /** Native app: the mouse button went up (possibly outside the window, which the page never sees). */
   endDrag: (outside) => endDrag({ outside: !!outside }),
-  paste: (text) => { if (active) { active.term.paste(String(text)); active.term.focus(); } },
+  paste: (text) => { const v = kb(); if (v) { v.term.paste(String(text)); v.term.focus(); } },
 };
 // Coming back from sleep / a hidden window: repaint the terminal.
 document.addEventListener('visibilitychange', () => { if (!document.hidden) panes.forEach((p) => p.view?.redraw()); });
@@ -430,7 +481,7 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey && !e.shiftKey && e.key === 'b' && !typingInField()) { toggleSidebar(); e.preventDefault(); e.stopPropagation(); return; } // ⌘B tab list
   if (e.metaKey && e.key === '\\') { split(); e.preventDefault(); e.stopPropagation(); return; } // ⌘\ split / unsplit
   if (e.metaKey && /^[1-9]$/.test(e.key)) {          // ⌘1..9: switch tab
-    const v = [...views.values()][Number(e.key) - 1];
+    const v = tabViews()[Number(e.key) - 1];
     if (v) { activate(v.id); e.preventDefault(); e.stopPropagation(); }
     return;
   }
@@ -441,20 +492,113 @@ document.addEventListener('keydown', (e) => {
     if (k === 'a') { jumpToAttention(); e.preventDefault(); e.stopPropagation(); return; }
   }
   // Typing anywhere goes to the active terminal, even if it's collapsed or you clicked the transcript.
-  if (!active || active.host.contains(document.activeElement) || e.metaKey || e.target.tagName === 'SELECT') return;
-  active.term.focus();
-  if (e.key.length === 1 && !e.ctrlKey && !e.altKey) { send({ type: 'input', tab: active.id, data: e.key }); e.preventDefault(); }
-  else if (e.key === 'Enter') { send({ type: 'input', tab: active.id, data: '\r' }); e.preventDefault(); }
+  const to = kb();
+  if (!to || typingInField() || to.host.contains(document.activeElement) || e.metaKey || e.target.tagName === 'SELECT') return;
+  to.term.focus();
+  if (e.key.length === 1 && !e.ctrlKey && !e.altKey) { send({ type: 'input', tab: to.id, data: e.key }); e.preventDefault(); }
+  else if (e.key === 'Enter') { send({ type: 'input', tab: to.id, data: '\r' }); e.preventDefault(); }
 }, true);
 document.addEventListener('mouseup', (e) => {
-  if (workspaces.isOpen || later.isOpen || inbox.isOpen || registrar.isOpen || e.target.closest('select, button, dialog, .inbox')) return;
-  if (!String(window.getSelection())) active?.term.focus();
+  if (workspaces.isOpen || later.isOpen || inbox.isOpen || registrar.isOpen || e.target.closest('select, button, input, dialog, .inbox')) return;
+  if (!String(window.getSelection())) kb()?.term.focus();
 });
 
 // ---------- socket ----------
 let ws;
 function send(m) { if (ws?.readyState === 1) ws.send(JSON.stringify(m)); }
-const later = initLater({ send, box: $('later'), claudeTabs: () => [...views.values()].filter((v) => v.mode === 'claude').length });
+
+// ---------- the Steward: a panel on the right, not a tab ----------
+// It is a session like the others underneath, but it is about the workspace, so it sits beside the
+// work instead of in the list with it. The button opens and closes the panel; the session keeps running.
+const dock = document.createElement('aside');
+dock.id = 'steward-dock'; dock.hidden = true;
+dock.innerHTML = `<div id="dock-grip" title="Drag to resize. Double-click to reset."></div>
+  <header class="dock-head"><span class="tdot"></span><b>✦ Steward</b><span class="dock-sub">organises this workspace</span>
+    <button class="dock-new" title="End this Steward conversation and start a clean one">Start over</button>
+    <button class="dock-x" title="Hide the Steward. It keeps running.">×</button></header>`;
+$('main').append(dock);
+const dockDot = dock.querySelector('.tdot');
+let dockFocus = false;
+function setDockFocus(on) { dockFocus = on; dock.classList.toggle('kb', on); }
+const dockPane = new Pane(dock, { send, onFocus: () => setDockFocus(true) });
+stage.addEventListener('pointerdown', () => setDockFocus(false), true);
+$('sidebar').addEventListener('pointerdown', () => setDockFocus(false), true);
+let stewardRestart = false;
+function openDock(focus) {
+  const v = stewardView();
+  if (!v) return;
+  dock.hidden = false;
+  try { localStorage.setItem('stewardOpen', '1'); } catch { /* private mode */ }
+  dockPane.show(v, focus);
+  if (focus) setDockFocus(true);
+  renderTabs();
+}
+function closeDock(remember = true) {
+  dockPane.view?.setActive(false);
+  dock.hidden = true;
+  setDockFocus(false);
+  if (remember) { try { localStorage.setItem('stewardOpen', '0'); } catch { /* private mode */ } }
+  active?.term.focus();
+  renderTabs();
+}
+$('steward-btn').onclick = () => { if (dock.hidden) send({ type: 'steward' }); else closeDock(); }; // the server starts it if needed, then focuses it
+dock.querySelector('.dock-x').onclick = () => closeDock();
+dock.querySelector('.dock-new').onclick = () => {
+  const v = stewardView();
+  if (!v || !confirm('Start a new Steward conversation? This one ends; its log is kept.')) return;
+  stewardRestart = true;
+  send({ type: 'close-tab', tab: v.id });
+};
+{
+  const grip = dock.querySelector('#dock-grip');
+  const setW = (w) => { if (w) document.body.style.setProperty('--dock-w', `${w}px`); else document.body.style.removeProperty('--dock-w'); };
+  const saved = Number(localStorage.getItem('dockWidth'));
+  if (saved >= 320 && saved <= 900) setW(saved);
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    grip.setPointerCapture(e.pointerId);
+    document.body.classList.add('side-drag');
+    const right = dock.getBoundingClientRect().right;
+    let w = 0;
+    const move = (ev) => { w = Math.round(Math.max(320, Math.min(right - ev.clientX, 900, window.innerWidth - 480))); setW(w); };
+    const stop = () => {
+      grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', stop); grip.removeEventListener('pointercancel', stop);
+      document.body.classList.remove('side-drag');
+      if (w) { try { localStorage.setItem('dockWidth', String(w)); } catch { /* private mode */ } }
+    };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', stop); grip.addEventListener('pointercancel', stop);
+  });
+  grip.addEventListener('dblclick', () => { setW(0); try { localStorage.removeItem('dockWidth'); } catch { /* private mode */ } });
+}
+
+// ---------- session tools menu ----------
+const sessionMenu = document.createElement('div');
+sessionMenu.id = 'session-menu'; sessionMenu.hidden = true;
+document.body.append(sessionMenu);
+for (const [action, name, sub] of [
+  ['reload', 'Reload', 'Restart Claude and resume this conversation, with skills, MCP servers and settings read afresh. Waits for the current turn to end.'],
+  ['handoff', 'Hand off and start fresh', 'Types a request for a handoff document, after which the session restarts clean and reads it. You press Enter.'],
+  ['split', 'Split in two', 'Opens a copy of this conversation beside it, so each can take one direction.'],
+]) {
+  const b = document.createElement('button');
+  const t = document.createElement('b'); t.textContent = name;
+  const s = document.createElement('span'); s.textContent = sub;
+  b.append(t, s);
+  b.onclick = () => { sessionMenu.hidden = true; if (active) send({ type: 'session-tool', tab: active.id, action }); active?.term.focus(); };
+  sessionMenu.append(b);
+}
+$('session-btn').onclick = (e) => {
+  e.stopPropagation();
+  if (!active || active.mode !== 'claude') { toast('Open a tab with Claude running first'); return; }
+  const r = $('session-btn').getBoundingClientRect();
+  sessionMenu.style.top = r.bottom + 4 + 'px';
+  sessionMenu.style.right = Math.max(8, innerWidth - r.right) + 'px';
+  sessionMenu.hidden = !sessionMenu.hidden;
+};
+document.addEventListener('click', (e) => { if (!sessionMenu.contains(e.target)) sessionMenu.hidden = true; });
+
+const later = initLater({ send, box: $('later'), claudeTabs: () => [...views.values()].filter((v) => v.mode === 'claude' && !v.role).length });
 
 function onMessage(m) {
   if (m.type === 'hello') {
@@ -464,6 +608,7 @@ function onMessage(m) {
     views.clear(); active = null; recent.length = 0;
     while (panes.length > 1) unsplit(panes[1]);
     panes[0].clear();
+    dockPane.clear(); dock.hidden = true; setDockFocus(false);
     return;
   }
   if (m.type === 'workspaces') { workspaces.setList(m.list); setWelcomeWorkspaces(m.list); for (const v of views.values()) v.refreshEmpty(); return; }
@@ -472,6 +617,7 @@ function onMessage(m) {
   if (m.type === 'cleanup') { later.setRows(m.rows); return; }
   if (m.type === 'registrar') { registrar.setState(m); return; }
   if (m.type === 'welcome') { setWelcomeInfo(m); for (const v of views.values()) v.refreshEmpty(); return; }
+  if (m.type === 'found-sessions') { setFound(m); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'toast') { toast(m.text); return; }
   if (m.type === 'pick-folder') { native?.postMessage({ type: 'choose-folder', tab: m.tab, cwd: m.cwd }); return; }
   if (m.type === 'workspace-name') { // this window is a workspace: the button becomes it, and opens its properties
@@ -493,13 +639,19 @@ function onMessage(m) {
   }
   if (m.type === 'tab-open') {
     views.get(m.tab)?.dispose();
-    const v = new TabView(m.tab, { send, theme: theme.term, home, screen: m.screen, pane: focused });
+    const v = new TabView(m.tab, { send, theme: theme.term, home, screen: m.screen, pane: m.role === 'steward' ? dockPane : focused });
     views.set(m.tab, v);
-    v.group = m.group ?? m.tab; v.lane = m.lane ?? '';
+    v.group = m.group ?? m.tab; v.lane = m.lane ?? ''; v.role = m.role ?? '';
     v.setMode(m.mode, m.cwd);
     v.reset(m.entries);
     v.setQueue(m.queue ?? []);
     v.lunatic = m.lunatic; v.busy = m.busy; v.snapRows = m.snapRows ?? 0; v.label = m.label ?? null; v.setDialog(m.dialog ?? null);
+    if (v.role === 'steward') { // into its panel: opened if you asked for it, or if it was open last time
+      const asked = pendingFocus === m.tab;
+      if (asked) pendingFocus = null;
+      if (asked || localStorage.getItem('stewardOpen') === '1') openDock(asked); else renderTabs();
+      return;
+    }
     // An empty focused pane (fresh window, or a split waiting for its new tab) takes it.
     if (!focused.view || pendingFocus === m.tab || pendingFocus === 'next') { pendingFocus = null; activate(m.tab); } else renderTabs();
     return;
@@ -526,6 +678,12 @@ function onMessage(m) {
       const holder = paneOf(v);
       v.dispose(); views.delete(m.tab);
       const ri = recent.indexOf(m.tab); if (ri >= 0) recent.splice(ri, 1);
+      if (v.role === 'steward') {
+        dockPane.clear();
+        if (stewardRestart) { stewardRestart = false; send({ type: 'steward' }); } else closeDock(false);
+        renderTabs();
+        return;
+      }
       if (holder) {
         holder.view = null;
         const next = nextUnshown();

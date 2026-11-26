@@ -124,7 +124,8 @@ under their tab and gives each its charter again. Dragging a row to another wind
 
 `src/later.ts` keeps `later.json` in the data folder: one entry per Claude tab you closed (session id,
 folder, label, what was left, the workspace it was closed in). Each window is sent the entries for its
-workspace. Ticking one removes the entry; clicking it reopens a tab with `claude --resume`. An entry
+workspace. On close, one queued headless Sonnet call writes the entry's digest (`outcome`, up to three
+`loose` ends). An entry whose digest finds no loose ends is removed at once, so the tray ("Unfinished" on the page) holds only sessions that left something open or are still being read. `later-wrap` (`wrapUp`) appends every loose end as a checkbox line to `todo/loose-ends.md` in the folder most of those sessions ran in, empties the tray, and opens one tab with a brief drafted (not sent) to work through that file. Dismissing removes the entry; Reopen opens a tab with `claude --resume`. An entry
 also drops off by itself when its session is open again by any route. Session logs are never touched.
 
 Clean up (`cleanup-review`) sends one headless Sonnet call with an excerpt of every open Claude tab in
@@ -132,6 +133,39 @@ the window and gets back done / nearly / active plus one sentence on what is lef
 only when the answer is done or nearly and the tab is neither working nor waiting on a prompt. If the
 call fails, or `CLAUDE_PANE_NO_LABELS` is set, the rows come back unticked. `cleanup-apply` closes the
 ticked tabs and stores each one's sentence with its entry.
+
+## Find a session
+
+`src/findsession.ts`. The start screen's search box sends `find-session`; the server starts one
+headless `claude -p --model sonnet` with only Grep, Glob and Read, in the folder holding the logs of
+the workspace's project folders (all of `~/.claude/projects` for a window that is not a workspace).
+It is given the candidate list (id, date, title) and replies with up to five ids; ids not on the list
+are dropped. The same folders scope the "Resume a session" list (`workspaceFolders` in `server.ts`).
+
+## The Steward
+
+`src/steward.ts`. On the page the Steward is a panel on the right (`#steward-dock` in `app.js`, a `Pane` of its own outside the `panes` list), not a row in the tab list. Underneath, a tab with `role: 'steward'` is an ordinary Claude Code session started with a
+different launch note (`STEWARD_NOTE`, in place of the usual one) and offered five more tools on the
+tab's MCP address: `list_sessions`, `read_session`, `open_session`, `close_sessions`,
+`reopen_session`. The server implements them in `stewardTool` (`server.ts`) and answers them only for
+a Steward tab. Handles are `T<tab id>` for open tabs and `C<id>` for the Closed list.
+
+The shell function passes `--allowedTools "$CLAUDE_PANE_ALLOW"`, which for the Steward names every
+tool except `close_sessions`, so closing tabs goes through Claude Code's own permission prompt.
+`open_session` types its brief without sending it. The Steward keeps Claude Code's normal tools (it
+writes lists and edits instruction files); that it hands real work to other sessions is its brief,
+not a tool restriction. One Steward per window, saved with the workspace; it is left out of the
+Registrar, Clean up and the Closed list.
+
+## Session tools
+
+`queueRestart` in `server.ts` waits until the tab's Claude has been idle for three seconds, sends it
+SIGTERM (Claude Code exits cleanly and the shell prompt returns), then types `claude --resume <id>`
+(reload) or `claude` (fresh) and, if given, sends a first message. The Session menu's Reload calls it
+directly; sessions reach it through the `restart_session` tool on the tab's MCP address, which is not
+pre-approved, so Claude Code asks before a session restarts itself. Hand off types a prompt asking
+for a handoff document followed by a `restart_session` call with mode `fresh`. Split opens a sub-tab
+in the same group running `claude --resume <id> --fork-session`.
 
 ## Environment switches
 

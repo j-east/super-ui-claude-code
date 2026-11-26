@@ -62,11 +62,21 @@ resumes. Closed a tab by accident? `⌘Z` brings it back.
 beside itself. The tab on the left stays one row; its sessions line up across the top. The new session
 starts with its task typed in, waiting for you to press Enter.
 
-**Close tabs without losing them.** A Claude tab you close goes on a **Closed** list under your tabs, so
-it works as a to-do list: click an item to reopen it with its conversation resumed, or tick it off when
-it's dealt with. When the tab list gets long, **Clean up** reads your open sessions and shows them with
-checkboxes. The ones that look finished come ticked, each with a line on what was left. You decide, then
-close them in one click. Sessions that are working or waiting on you are never ticked for you.
+**Close tabs without leaving loose ends.** Closing a tab says "this is no longer in progress". The app
+reads the session as it closes. If nothing was left open, the tab is simply gone. If it left loose ends
+(something to send, check or decide), it waits in an **Unfinished** tray under your tabs until you
+reopen it, dismiss it, or press **Finish these in one session**. That empties the tray into one new
+session in your tab list whose job is to work through all of them; the list is kept in
+`todo/loose-ends.md` in your project and ticked off as it goes. When the tab list gets long,
+**Tidy tabs** reads your open sessions and shows them with checkboxes. The ones that look finished come
+ticked. You decide, then close them in one click. Sessions that are working or waiting on you are never
+ticked for you.
+
+**Session tools.** The **↻ Session** button holds the things that keep coming up. *Reload* restarts
+Claude and resumes the same conversation, so a new skill, MCP server or setting is picked up without
+losing your place. *Hand off and start fresh* has the session write a handoff document, then restarts
+clean and reads it. *Split in two* opens a copy of the conversation beside it, so each can take one
+direction. A session can also ask for its own reload when it has just installed something.
 
 ## The Registrar: no boss, perfect memory
 
@@ -99,6 +109,27 @@ lists every heads-up, and the session's page shows what it was told.
 
 The result: your sessions stay independent and fast, and you stop paying twice for the same work.
 
+## The Steward: someone to tidy the workshop
+
+The Registrar watches. The **Steward** acts, but only on the workshop itself. Click **✦ Steward** and a
+panel opens on the right of the window, beside whatever you are working on. In it is a Claude session
+whose one subject is your workspace: which sessions exist, what each has left
+open, what should be gathered, closed or started.
+
+Ask it things like:
+
+- "Gather the little business tasks from all these sessions into one to-do list, and start a session
+  that works through it."
+- "Close everything that's finished."
+- "Start a session to draft the investor update, and tell it about the numbers we settled in the
+  pricing session."
+- "Add a line to this project's instructions so every session checks the to-do list first."
+
+It writes lists and instruction files into your project folder, opens sessions with a brief already
+typed in (you press Enter to start them), and closes finished tabs. What it does
+not do is the work itself. That always goes to a session of its own, for a practical reason: the
+Steward's memory stays about your workspace, and the session doing the work starts clean.
+
 ## Get started in two minutes
 
 You need [Claude Code](https://claude.com/claude-code) and a Claude subscription. If Claude Code isn't
@@ -119,6 +150,8 @@ installed yet, the app's start screen offers to install it for you.
 The Windows version is new and experimental. If something breaks, [tell us](https://github.com/j-east/super-ui-claude-code/issues).
 
 Open the app and you land on a start screen: launch Claude, pick a folder, or jump back into something recent.
+In a workspace, the start screen lists that workspace's past sessions, and a search box finds one from a
+description in your own words ("the one where we fixed the login bug").
 
 ## Questions people ask
 
@@ -130,8 +163,8 @@ The app is free. It runs on your own Claude subscription. The tab labels and the
 amount of extra usage on your account, and you can switch either off.
 
 **Is my work private?**
-Everything runs on your own computer. Three features send anything anywhere: tab labels, the Registrar,
-and Clean up (only when you click it). Each sends short excerpts of your sessions (your requests, the files changed, Claude's latest replies) to
+Everything runs on your own computer. Four features send anything anywhere: tab labels, the Registrar,
+closing or tidying tabs and Find a session (those two only when you use them). Each sends short excerpts of your sessions (your requests, the files changed, Claude's latest replies) to
 Claude on your own account, the same place your sessions already go. The Registrar's record is stored on
 your computer. Turn the Registrar off with the switch in its panel; see the
 [developer notes](docs/DEVELOPMENT.md) for the settings that turn off labels.
@@ -142,7 +175,7 @@ are Anthropic's trademarks.
 
 **Does it change how Claude Code works?**
 No. It runs the real Claude Code and reads the session history Claude Code already saves. It writes
-nothing into your Claude settings or your projects. Inside the app, Claude starts with one extra read-only
+nothing into your Claude settings, and into your projects only the lists you ask for (the loose-ends list, and what the Steward writes). Inside the app, Claude starts with one extra read-only
 tool for checking the Registrar's record and a hook that brings in its heads-ups; outside the app,
 nothing changes.
 

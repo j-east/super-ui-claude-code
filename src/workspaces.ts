@@ -11,7 +11,9 @@ const DIR = path.join(DATA_DIR, 'workspaces');
 /** `label`: the tab's written label when it was saved, so a reopened tab has its name before its session is back. */
 export interface WorkspaceTab { cwd: string; sessionId: string | null; title: string; claude: boolean; label?: { label: string; summary: string } | null;
   /** Lanes: `id` is the tab's id when saved, `group` the id its row is keyed by, so a reopen can put lanes back under their tab. */
-  id?: string; group?: string; lane?: string; charter?: string }
+  id?: string; group?: string; lane?: string; charter?: string;
+  /** 'steward' for the window's Steward session. */
+  role?: string }
 /** `auto`: the app named it (from the project folder); it has not been renamed by you. */
 export interface Workspace { name: string; savedAt: string; createdAt?: string; auto?: boolean; active: number; tabs: WorkspaceTab[] }
 export interface WorkspaceInfo { name: string; savedAt: string; createdAt: string; auto: boolean; tabs: number; titles: string[]; folders: string[]; covered: boolean;

@@ -18,7 +18,10 @@ import { WIN, INSTALL_CLAUDE, shq, cdCommand } from './platform.js';
 import { stopProcHelper } from './procwatch.js';
 import { clearRecordTool, forgetTab, handleNotes, handleRecordTool, recordToolEnv, type LaneRequest } from './recordtool.js';
 import { projectRoot, recordText, initRegistrar, registrarMsg, poke as pokeRegistrar, runNow as runRegistrar, setOn as setRegistrarOn, forgetDecision, closeFlag, takeNotes, dropNote } from './registrar.js';
-import { addLater, laterFor, takeLater, pruneOpen, renameLater, reviewTabs } from './later.js';
+import { findSessions } from './findsession.js';
+import { sessionText } from './steward.js';
+import { findTranscript, parseLine, type Entry } from './transcript.js';
+import { addLater, digestLater, laterFor, takeLater, pruneOpen, renameLater, reviewTabs, wrapUp } from './later.js';
 import { saveWorkspace, loadWorkspace, listWorkspaces, deleteWorkspace, renameWorkspace, pruneClosedWindowSaves, pruneAutoWorkspaces, type WorkspaceTab } from './workspaces.js';
 
 // Works from src/ (tsx) and build/ (compiled): both sit one level below the repo root.
@@ -82,9 +85,9 @@ function scheduleRegistrar(): void {
   regTimer ??= setTimeout(() => { regTimer = null; for (const [ws, w] of clients) send(ws, registrarFor(w)); }, 200);
 }
 const registrarFor = (win: string) => registrarMsg(new Set([...tabs.values()].filter((t) => t.windowId === win).map((t) => t.id)));
-initRegistrar(() => [...tabs.values()].flatMap((t) => t.registrarInput() ?? []), scheduleRegistrar);
+initRegistrar(() => [...tabs.values()].flatMap((t) => (t.role ? [] : t.registrarInput() ?? [])), scheduleRegistrar);
 
-function openTab(win: string, cwd: string, claudeArgs?: string[], lane?: { group: string; lane: string; charter: string }): Tab {
+function openTab(win: string, cwd: string, claudeArgs?: string[], lane?: { group: string; lane: string; charter: string }, role = ''): Tab {
   const id = String(nextId++);
   // Route by the tab's current window: tabs can be moved between windows.
   const tab: Tab = new Tab(id, win, cwd, (msg) => {
@@ -93,7 +96,8 @@ function openTab(win: string, cwd: string, claudeArgs?: string[], lane?: { group
     if (msg.type === 'label' || msg.type === 'mode') scheduleRegistrar();
     if (msg.type === 'activity' && msg.busy === false) pokeRegistrar(); // a turn ended
     if (msg.type === 'mode' || msg.type === 'transcript-reset') scheduleAutosave(); // a session started or changed
-  }, recordToolEnv(id, port, lane?.lane, lane?.charter));
+  }, recordToolEnv(id, port, lane?.lane, lane?.charter, role));
+  tab.role = role;
   tab.group = lane?.group || id;
   if (lane) { tab.lane = lane.lane; tab.charter = lane.charter; }
   tabs.set(id, tab);
@@ -134,8 +138,14 @@ const closedTabs: (WorkspaceTab & { win: string })[] = [];
 function closeTab(id: string, remember = false, left = ''): void {
   const tab = tabs.get(id);
   if (!tab) return;
-  if (remember) { addLater(tabRecord(tab), windowWorkspace.get(tab.windowId) ?? '', left); sendLater(); }
-  if (remember) { closedTabs.push({ ...tabRecord(tab), win: tab.windowId }); if (closedTabs.length > 20) closedTabs.shift(); }
+  if (remember && !tab.role) { // (the Steward is not a piece of work: it just closes)
+    // Closed by you: no longer in progress. It goes on the Closed list and is digested in the background.
+    const input = tab.cleanupInput();
+    const item = addLater(tabRecord(tab), windowWorkspace.get(tab.windowId) ?? '', left);
+    if (item && input) digestLater(item, input, () => sendLater());
+    sendLater();
+  }
+  if (remember && !tab.role) { closedTabs.push({ ...tabRecord(tab), win: tab.windowId }); if (closedTabs.length > 20) closedTabs.shift(); }
   tabs.delete(id);
   resumeIds.delete(id);
   forgetTab(id);
@@ -150,7 +160,8 @@ function closeTab(id: string, remember = false, left = ''): void {
 function restoreTab(win: string, rec: WorkspaceTab, group?: string): Tab {
   const lane = typeof rec.lane === 'string' && rec.lane ? rec.lane.slice(0, 40) : '';
   const tab = openTab(win, fs.existsSync(rec.cwd) ? rec.cwd : os.homedir(), undefined,
-    group || lane ? { group: group ?? '', lane, charter: typeof rec.charter === 'string' ? rec.charter.slice(0, 3000) : '' } : undefined);
+    group || lane ? { group: group ?? '', lane, charter: typeof rec.charter === 'string' ? rec.charter.slice(0, 3000) : '' } : undefined,
+    rec.role === 'steward' ? 'steward' : '');
   // Workspace files can be edited by hand: only ever type a well-formed session id.
   const id = typeof rec.sessionId === 'string' && UUID.test(rec.sessionId) ? rec.sessionId : null;
   // Waits (up to 20 s) for the new tab's login shell to finish starting before typing.
@@ -177,7 +188,7 @@ const tabRecord = (t: Tab): WorkspaceTab => {
   if (pending && t.sessionId) resumeIds.delete(t.id);
   const sessionId = t.sessionId ?? pending ?? null;
   return { cwd: t.cwd, sessionId, title: t.title, claude: t.claudeRunning || (!!pending && !t.sessionId), label: t.savedLabel,
-    id: t.id, group: t.group, ...(t.lane ? { lane: t.lane, charter: t.charter } : {}) };
+    id: t.id, group: t.group, ...(t.lane ? { lane: t.lane, charter: t.charter } : {}), ...(t.role ? { role: t.role } : {}) };
 };
 const worthSaving = (list: Tab[]) => list.some((t) => t.sessionId);
 
@@ -195,6 +206,7 @@ function bindWorkspace(win: string, name: string): void {
   windowWorkspace.set(win, name);
   toWindow(win, { type: 'workspace-name', name });
   sendLater();
+  for (const [ws, w] of clients) if (w === win) sendWelcome(ws); // its Resume list is the workspace's own
 }
 /** A name for a window nobody has named: the folder most of its sessions work in. */
 function nameFor(win: string): string {
@@ -322,24 +334,170 @@ function openLane(from: string, r: LaneRequest): { text: string; isError?: boole
   }
   const lane = tab;
   toWindow(lane.windowId, { type: 'focus-tab', tab: lane.id });
-  // Type the prompt once Claude is up and showing its input box (not a question such as "trust this folder?").
-  let tries = 0, ready = existing ? 3 : 0;
-  const timer = setInterval(() => {
-    if (!tabs.has(lane.id) || ++tries > 90) { clearInterval(timer); return; }
-    if (!lane.claudeRunning || lane.hasDialog) { ready = 0; return; }
-    if (++ready < 4) return; // up for about two seconds
-    clearInterval(timer);
-    lane.draft(r.prompt);
-  }, 500);
+  draftWhenReady(lane, r.prompt, existing);
   return { text: existing
     ? `The "${r.lane}" lane was already open beside this session. The prompt is being typed into its input box; the user reviews it and presses Enter. Drop the task here.`
     : `Opened the "${r.lane}" lane as a sub-tab beside this session. The prompt is being typed into its input box once Claude starts; the user reviews it and presses Enter. Drop the task here.` };
 }
 
+/** Type `prompt` into a tab's Claude input box (unsent) once Claude is up and showing it, not a question such as "trust this folder?". */
+function draftWhenReady(tab: Tab, prompt: string, alreadyUp = false, send = false): void {
+  let tries = 0, ready = alreadyUp ? 3 : 0;
+  const timer = setInterval(() => {
+    if (!tabs.has(tab.id) || ++tries > 90) { clearInterval(timer); return; }
+    if (!tab.claudeRunning || tab.hasDialog) { ready = 0; return; }
+    if (++ready < 4) return; // up for about two seconds
+    clearInterval(timer);
+    tab.draft(prompt);
+    if (send) setTimeout(() => { if (tabs.has(tab.id) && tab.claudeRunning && !tab.hasDialog) tab.input('\r'); }, 600);
+  }, 500);
+}
+
+// ---------- session tools: restart, hand off, split ----------
+const restarts = new Map<string, NodeJS.Timeout>();
+/**
+ * Restart the Claude in a tab once it is idle: quit it, then start it again in the same tab.
+ * 'reload' resumes the same conversation (skills, MCP servers, hooks and settings are read afresh);
+ * 'fresh' starts a new one. `then` is sent as the first message afterwards.
+ */
+function queueRestart(tab: Tab, mode: 'reload' | 'fresh', then = ''): { text: string; isError?: boolean } {
+  if (!tab.claudeRunning) return { text: 'Claude is not running in this tab.', isError: true };
+  if (mode === 'reload' && !tab.sessionId) return { text: 'This session has no conversation to resume yet. Send a message first, or use mode "fresh".', isError: true };
+  clearInterval(restarts.get(tab.id));
+  let idle = 0, tries = 0;
+  const stop = () => { clearInterval(restarts.get(tab.id)); restarts.delete(tab.id); };
+  const say = (text: string) => toWindow(tab.windowId, { type: 'toast', text });
+  restarts.set(tab.id, setInterval(() => {
+    if (!tabs.has(tab.id) || !tab.claudeRunning || ++tries > 1800) { stop(); return; }
+    if (tab.working || tab.hasDialog) { idle = 0; return; }
+    if (++idle < 3) return; // quiet for three seconds: the turn is over
+    stop();
+    const sid = tab.sessionId;
+    if (mode === 'reload' && !sid) { say('Could not reload: this session has no conversation yet'); return; }
+    if (!tab.endClaude()) return;
+    void (async () => {
+      for (let i = 0; i < 40 && tab.claudeRunning; i++) await new Promise((r) => setTimeout(r, 250));
+      if (!tabs.has(tab.id)) return;
+      if (tab.claudeRunning) { say('Claude did not quit, so the session was not restarted'); return; }
+      if (mode === 'reload') resumeIds.set(tab.id, sid!);
+      if (!(await tab.typeCommand(mode === 'reload' ? `claude --resume ${sid}` : 'claude', 15_000))) { say('Could not restart Claude in this tab: its shell is busy'); return; }
+      say(mode === 'reload' ? 'Session reloaded: same conversation, fresh skills, MCP servers and settings' : 'Fresh session started');
+      if (then) draftWhenReady(tab, then, false, true);
+    })();
+  }, 1000));
+  return { text: `Queued. As soon as this turn ends, Claude Code quits and ${mode === 'reload' ? 'resumes this conversation with everything reloaded' : 'starts a new conversation in this tab'}` +
+    `${then ? ', and your `then` message is sent' : ''}. Finish your reply briefly and stop now.` };
+}
+
+const HANDOFF = 'Write a handoff document for this conversation so a new session can carry on without it. Save it in this project (the place it already keeps such notes, otherwise docs/handoff/<date>-<topic>.md). ' +
+  'Cover: the goal, what is done and where it lives (files, branches, links), decisions made and why, what is in progress, what is left, and anything that surprised us. Write it for a reader with none of this context. ' +
+  'Then call mcp__registrar__restart_session with mode "fresh" and then set to "Read <that file> and continue from it."';
+
+/** A second copy of a tab's conversation, as a sub-tab beside it, so the two can go separate ways. */
+function splitSession(tab: Tab): void {
+  const say = (text: string) => toWindow(tab.windowId, { type: 'toast', text });
+  const sid = tab.sessionId;
+  if (!tab.claudeRunning || !sid) { say('Nothing to split yet: this tab has no conversation'); return; }
+  const mates = windowTabs(tab.windowId).filter((t) => t.group === tab.group);
+  if (mates.length >= 8) { say('This tab already has 8 sessions under it'); return; }
+  let name = 'split';
+  for (let i = 2; mates.some((t) => t.lane === name); i++) name = `split-${i}`;
+  const copy = openTab(tab.windowId, tab.registrarInput()?.cwd ?? tab.cwd, undefined, { group: tab.group, lane: name,
+    charter: 'A copy of the conversation in the tab beside it, taken when the user split it in two. The user will say which direction this copy takes; the other tab keeps the rest.' });
+  if (tab.savedLabel) copy.seedLabel(tab.savedLabel);
+  void copy.typeCommand(`claude --resume ${sid} --fork-session`, 20_000);
+  toWindow(tab.windowId, { type: 'focus-tab', tab: copy.id });
+}
+
+// ---------- the Steward ----------
+/** The folder most of a window's sessions work in. */
+function mainFolder(win: string): string {
+  const count = new Map<string, number>();
+  for (const t of windowTabs(win)) if (!t.role) { const c = t.registrarInput()?.cwd ?? t.cwd; count.set(c, (count.get(c) ?? 0) + (t.claudeRunning ? 2 : 1)); }
+  return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? os.homedir();
+}
+/** Go to this window's Steward session, starting one if there is none. */
+function openSteward(win: string): void {
+  let tab = windowTabs(win).find((t) => t.role === 'steward');
+  if (!tab) {
+    tab = openTab(win, mainFolder(win), undefined, undefined, 'steward');
+    tab.seedLabel({ label: 'Steward', summary: 'Organises this workspace: gathers tasks, opens and closes sessions, keeps its instructions current.' });
+    void tab.typeCommand('claude', 20_000);
+  } else if (!tab.claudeRunning) void tab.typeCommand('claude', 20_000);
+  toWindow(win, { type: 'focus-tab', tab: tab.id });
+}
+/** One call to a Steward tool from the Steward session in tab `from`. Null if that tab is not a Steward. */
+function stewardTool(from: string, name?: string, args: Record<string, unknown> = {}): { text: string; isError?: boolean } | null {
+  const me = tabs.get(from);
+  if (!me || me.role !== 'steward') return null;
+  if (!name) return { text: '' };
+  const win = me.windowId;
+  const ws = windowWorkspace.get(win) ?? '';
+  const open = () => windowTabs(win).filter((t) => !t.role);
+  const state = (t: Tab) => (!t.claudeRunning ? 'plain shell, no Claude running' : t.hasDialog ? 'WAITING on the user' : t.working ? 'WORKING now' : 'idle');
+  const err = (text: string) => ({ text, isError: true });
+  const handle = String(args.id ?? '').trim();
+  if (name === 'list_sessions') {
+    const o = open().map((t) => `T${t.id} | ${t.savedLabel?.label || t.title || '(unnamed)'} | ${state(t)} | ${t.registrarInput()?.cwd ?? t.cwd}${t.lane ? ` | lane ${t.lane}` : ''}` +
+      (t.savedLabel?.summary ? `\n    ${t.savedLabel.summary}` : ''));
+    const c = laterFor(ws).map((i) => `C${i.id} | ${i.label} | closed ${new Date(i.closedAt).toISOString().slice(0, 10)} | ${i.cwd}` +
+      (i.outcome ? `\n    Outcome: ${i.outcome}` : i.summary ? `\n    ${i.summary}` : '') + (i.loose ?? []).map((l) => `\n    Loose end: ${l}`).join(''));
+    return { text: `Workspace: ${ws || '(this window is not a saved workspace yet)'}\nMain folder: ${mainFolder(win)}\n\nOpen sessions (${o.length}):\n${o.join('\n') || '(none)'}\n\nClosed sessions with loose ends (${c.length}):\n${c.join('\n') || '(none)'}` };
+  }
+  if (name === 'read_session') {
+    if (/^T\d+$/.test(handle)) {
+      const t = open().find((x) => x.id === handle.slice(1));
+      const input = t?.registrarInput();
+      if (!t) return err(`No open session ${handle}. Call list_sessions for the current handles.`);
+      return { text: input ? `${sessionText(input.label, input.entries)}\n\nState: ${state(t)}` : `${handle} is a plain shell with no Claude session.` };
+    }
+    const it = laterFor(ws).find((i) => `C${i.id}` === handle);
+    if (!it) return err(`No session ${handle}. Call list_sessions for the current handles.`);
+    const file = findTranscript(it.sessionId);
+    let entries: Entry[] = [];
+    try { if (file) entries = fs.readFileSync(file, 'utf8').split('\n').flatMap(parseLine); } catch { /* unreadable */ }
+    return { text: `${sessionText(it.label, entries)}\n\nState: closed${it.outcome ? `\nDigest: ${it.outcome}` : ''}${(it.loose ?? []).map((l) => `\nLoose end: ${l}`).join('')}` };
+  }
+  if (name === 'open_session') {
+    const prompt = typeof args.prompt === 'string' ? args.prompt.trim().slice(0, 6000) : '';
+    const label = typeof args.name === 'string' ? args.name.trim().slice(0, 60) : '';
+    if (!prompt) return err('open_session needs a prompt.');
+    let dir = typeof args.folder === 'string' && args.folder.trim() ? args.folder.trim() : mainFolder(win);
+    try { if (!path.isAbsolute(dir) || !fs.statSync(dir).isDirectory()) return err(`"${dir}" is not a folder on this computer.`); } catch { return err(`"${dir}" is not a folder on this computer.`); }
+    if (windowTabs(win).length >= 30) return err('This window already has 30 tabs. Close some first.');
+    const tab = openTab(win, dir);
+    if (label) tab.seedLabel({ label, summary: prompt.replace(/\s+/g, ' ').slice(0, 200) });
+    void tab.typeCommand('claude', 20_000);
+    draftWhenReady(tab, prompt);
+    return { text: `Opened T${tab.id}${label ? ` "${label}"` : ''} in ${dir}. The brief is being typed into its input box; the user reads it and presses Enter to start. The work belongs to that session now.` };
+  }
+  if (name === 'close_sessions') {
+    const ids = (Array.isArray(args.ids) ? args.ids : []).map((x) => String(x).trim());
+    if (!ids.length) return err('close_sessions needs a list of handles.');
+    const lines: string[] = [];
+    for (const h of ids) {
+      const t = open().find((x) => `T${x.id}` === h);
+      if (!t) lines.push(`${h}: no such open session`);
+      else if (t.hasDialog || t.working) lines.push(`${h} "${t.savedLabel?.label || t.title}": left open, it is ${t.hasDialog ? 'waiting on the user' : 'working'}`);
+      else { lines.push(`${h} "${t.savedLabel?.label || t.title}": closed`); closeTab(t.id, true); }
+    }
+    return { text: lines.join('\n') };
+  }
+  if (name === 'reopen_session') {
+    const it = laterFor(ws).find((i) => `C${i.id}` === handle);
+    if (!it || !takeLater(it.id)) return err(`No closed session ${handle}.`);
+    const t = restoreTab(win, { cwd: it.cwd, sessionId: it.sessionId, title: it.label, claude: true, label: { label: it.label, summary: it.summary } });
+    sendLater();
+    return { text: `Reopened "${it.label}" as T${t.id}; its conversation is resuming.` };
+  }
+  return err('Unknown tool.');
+}
+
 /** Resume a past session in this tab: go to its folder, then `claude --resume <id>`. */
 function resumeIn(tab: Tab, id: string, dir: string): void {
   if (!UUID.test(id) || tab.claudeRunning) return;
-  if ([...tabs.values()].some((t) => tabRecord(t).sessionId === id)) { toWindow(tab.windowId, { type: 'toast', text: 'That session is already open in a tab' }); return; }
+  const has = [...tabs.values()].find((t) => tabRecord(t).sessionId === id);
+  if (has) { toWindow(has.windowId, { type: 'focus-tab', tab: has.id, raise: true }); return; } // already open: go to it
   let ok = false;
   try { ok = path.isAbsolute(dir) && fs.statSync(dir).isDirectory(); } catch { /* gone */ }
   if (!ok) { toWindow(tab.windowId, { type: 'toast', text: 'That folder no longer exists' }); return; }
@@ -348,9 +506,17 @@ function resumeIn(tab: Tab, id: string, dir: string): void {
   resumeIds.set(tab.id, id);
   void tab.typeCommand(cdCommand(dir, `claude --resume ${id}`));
 }
+/** The project folders a window's workspace covers: its tabs' (open and saved) and its closed tabs'. None for a window that is not a workspace. */
+function workspaceFolders(win: string): string[] {
+  const name = windowWorkspace.get(win);
+  if (!name) return [];
+  return [...new Set([...windowTabs(win).map((t) => tabRecord(t).cwd), ...(loadWorkspace(name)?.tabs.map((t) => t.cwd) ?? []), ...laterFor(name).map((i) => i.cwd)])];
+}
 function sendWelcome(ws: WebSocket, fresh = false): void {
   const open = new Set([...tabs.values()].flatMap((t) => tabRecord(t).sessionId ?? []));
-  void welcomeInfo(fresh, open).then((info) => send(ws, { type: 'welcome', ...info, workspaces: listWorkspaces() }));
+  const win = clients.get(ws) ?? '';
+  // In a workspace, the sessions offered are that workspace's own.
+  void welcomeInfo(fresh, open, workspaceFolders(win)).then((info) => send(ws, { type: 'welcome', ...info, scope: windowWorkspace.get(win) ?? null, workspaces: listWorkspaces() }));
 }
 
 // ---------- window ----------
@@ -377,7 +543,7 @@ const server = http.createServer((req, res) => {
     handleRecordTool(req, res, url.pathname.slice(5), (id, about) => {
       const t = tabs.get(id);
       return t ? recordText(t.registrarInput()?.cwd ?? t.cwd, id, about) : null;
-    }, openLane);
+    }, openLane, stewardTool, (id, mode, then) => { const t = tabs.get(id); return t ? queueRestart(t, mode, then) : { text: 'This tab is no longer open.', isError: true }; });
     return;
   }
   if (url.pathname === '/api/busy') {
@@ -520,6 +686,31 @@ server.on('upgrade', (req, sock, head) => {
         return;
       }
       if (m.type === 'welcome') { sendWelcome(ws, !!m.fresh); return; }
+      if (m.type === 'steward') { openSteward(win); return; }
+      if (m.type === 'find-session' && typeof m.q === 'string' && m.q.trim()) { // described in words; a headless Sonnet run looks for it
+        const q = m.q.trim().slice(0, 500);
+        void findSessions(q, workspaceFolders(win)).then((results) => {
+          const open = new Set([...tabs.values()].flatMap((t) => tabRecord(t).sessionId ?? []));
+          send(ws, { type: 'found-sessions', q, failed: !results, results: (results ?? []).map((r) => ({ ...r, open: open.has(r.id) })) });
+        });
+        return;
+      }
+      if (m.type === 'later-wrap') { // the whole tray becomes one session in the tab list, working from a list in the project
+        const r = wrapUp(windowWorkspace.get(win) ?? '');
+        if (!r) { send(ws, { type: 'toast', text: 'Could not write the list; nothing was removed.' }); return; }
+        sendLater();
+        if (!r.added) return;
+        const rel = path.relative(r.folder, r.file);
+        const tab = openTab(win, r.folder);
+        tab.seedLabel({ label: `Finish ${r.added} loose end${r.added === 1 ? '' : 's'}`, summary: `Works through the loose ends left by ${r.sessions} closed session${r.sessions === 1 ? '' : 's'}, listed in ${rel}.` });
+        void tab.typeCommand('claude', 20_000);
+        draftWhenReady(tab, `Read ${rel}. It lists small loose ends left by sessions I closed; each line names the session it came from. ` +
+          'Take the unticked items in order. Most are quick: do each one, then tick it off in the file with a few words on what you did. ' +
+          'If an item is already done or no longer applies, tick it and say so. If one is unclear or needs me, leave it unticked, note why beside it, and move on. ' +
+          'Stop and ask before anything that sends, spends or deletes. When you reach the end, tell me what is still unticked.');
+        toWindow(win, { type: 'focus-tab', tab: tab.id });
+        return;
+      }
       if (m.type === 'later-done') { takeLater(String(m.id)); sendLater(); return; }
       if (m.type === 'later-open') { // back as a tab, its session resumed
         const it = takeLater(String(m.id));
@@ -531,7 +722,7 @@ server.on('upgrade', (req, sock, head) => {
         return;
       }
       if (m.type === 'cleanup-review') { // read this window's sessions and suggest which to close
-        const list = windowTabs(win).flatMap((t) => t.cleanupInput() ?? []);
+        const list = windowTabs(win).flatMap((t) => (t.role ? [] : t.cleanupInput() ?? []));
         void reviewTabs(list).then((rows) => send(ws, { type: 'cleanup', rows }));
         return;
       }
@@ -590,6 +781,14 @@ server.on('upgrade', (req, sock, head) => {
       else if (m.type === 'resume-session' && typeof m.id === 'string' && typeof m.dir === 'string') resumeIn(tab, m.id, m.dir);
       else if (m.type === 'install-claude') void tab.typeCommand(INSTALL_CLAUDE);
       else if (m.type === 'lunatic') tab.setLunatic(!!m.on);
+      else if (m.type === 'session-tool') {
+        if (m.action === 'reload') { const r = queueRestart(tab, 'reload'); send(ws, { type: 'toast', text: r.isError ? r.text : tab.working ? 'Reload queued: it happens when this turn ends' : 'Reloading this session…' }); }
+        else if (m.action === 'split') splitSession(tab);
+        else if (m.action === 'handoff') {
+          if (!tab.claudeRunning || tab.working || tab.hasDialog) send(ws, { type: 'toast', text: 'Wait until Claude is idle in this tab, then try again' });
+          else tab.draft(HANDOFF);
+        }
+      }
       else if (m.type === 'close-tab') closeTab(tab.id, true);
       else if (m.type === 'redraw') tab.redraw();
       else if (m.type === 'send-queued') tab.sendQueuedNow();

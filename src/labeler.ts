@@ -80,6 +80,29 @@ function call(system: string, input: string, timeout = TIMEOUT): Promise<string 
     p.stdin.end(input);
   }));
 }
+/**
+ * A headless Sonnet run that may use the named read-only tools inside `cwd` (and `addDirs`). Not queued:
+ * it is something you asked for and are waiting on. Returns its final text, or null.
+ */
+export function agent(system: string, input: string, o: { tools: string; cwd: string; addDirs?: string[]; timeout?: number }): Promise<string | null> {
+  return findClaude().then((bin) => new Promise<string | null>((res) => {
+    if (!bin || /\.cmd$/i.test(bin)) return res(null);
+    // The two tool flags take lists, so each is followed by another flag.
+    const args = ['-p', '--model', 'sonnet', '--tools', o.tools, '--no-session-persistence', '--allowedTools', o.tools, '--strict-mcp-config',
+      '--setting-sources', '', '--output-format', 'json', '--system-prompt', system];
+    for (const d of o.addDirs ?? []) args.push('--add-dir', d, '--strict-mcp-config');
+    const p = spawn(bin, args, { cwd: o.cwd, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+    let out = '';
+    const kill = setTimeout(() => p.kill('SIGKILL'), o.timeout ?? TIMEOUT);
+    p.stdout.on('data', (d) => { out += d; });
+    p.on('error', () => { clearTimeout(kill); res(null); });
+    p.on('close', () => {
+      clearTimeout(kill);
+      try { const d = JSON.parse(out); res(d.is_error || typeof d.result !== 'string' ? null : d.result); } catch { res(null); }
+    });
+    p.stdin.end(input);
+  }));
+}
 /** The same call, queued behind any other (labels and the registrar share one line). */
 export function ask(system: string, input: string, timeout?: number): Promise<string | null> {
   const next = chain.then(() => call(system, input, timeout));

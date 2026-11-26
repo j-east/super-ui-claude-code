@@ -1,9 +1,11 @@
 // Closed tabs, kept as a list you can tick off, and "Clean up", which reads the open sessions and
 // suggests which ones are finished enough to close.
 //
-// A Claude tab you close goes on the list with its name, what was left to do (if Clean up worked that
-// out) and its session id, so it can be reopened later. Ticking an item removes it from the list; the
-// session's log is never touched. The list is per workspace and lives in later.json beside the workspaces.
+// Closing a tab means "this is no longer in progress". It is digested in the background: one sentence
+// on what came of it, and any loose ends. A session that left nothing open then simply goes away. One
+// that left loose ends stays in the tray until you reopen it, dismiss it, or wrap the whole tray up
+// into a to-do list in the project (`wrapUp`). The log is never touched. The list is per workspace and
+// lives in later.json beside the workspaces.
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './platform.js';
@@ -15,6 +17,8 @@ export interface LaterItem {
   id: string; sessionId: string; cwd: string; label: string; summary: string;
   /** What was still open when it was closed, in a sentence. Empty when nothing was, or nobody looked. */
   left: string; closedAt: number;
+  /** The digest: what came of the session, and what it left open. `digested` false while it is being written. */
+  outcome?: string; loose?: string[]; digested?: boolean;
   /** The workspace it was closed in ('' for a window without one). */
   workspace: string;
   lane?: string; charter?: string;
@@ -23,7 +27,14 @@ export interface LaterItem {
 const FILE = path.join(DATA_DIR, 'later.json');
 const MAX = 200;
 let items: LaterItem[] = [];
-try { const d = JSON.parse(fs.readFileSync(FILE, 'utf8')); if (Array.isArray(d.items)) items = d.items; } catch { /* first run */ }
+/** What stays in the tray: a session still being digested, or one that left something open. */
+const unfinished = (i: LaterItem) => i.digested === false || (i.loose ? i.loose.length > 0 : !!i.left);
+try {
+  const d = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  if (Array.isArray(d.items)) items = d.items;
+  for (const i of items) if (i.digested === false) i.digested = true; // a digest cut short by quitting never lands
+  items = items.filter(unfinished);
+} catch { /* first run */ }
 const save = () => {
   try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(FILE, JSON.stringify({ items }, null, 2), { mode: 0o600 }); } catch { /* ignore */ }
 };
@@ -31,16 +42,18 @@ const save = () => {
 /** Newest first. */
 export const laterFor = (workspace: string) => items.filter((i) => i.workspace === workspace).sort((a, b) => b.closedAt - a.closedAt);
 
-/** A closed tab joins the list (replacing an older entry for the same session). Plain shells are not kept. */
-export function addLater(rec: WorkspaceTab, workspace: string, left = ''): void {
-  if (!rec.sessionId) return;
+/** A closed tab joins the list (replacing an older entry for the same session). Plain shells are not kept. Returns the new entry's id. */
+export function addLater(rec: WorkspaceTab, workspace: string, left = ''): string | null {
+  if (!rec.sessionId) return null;
   items = items.filter((i) => i.sessionId !== rec.sessionId);
-  items.push({ id: Math.random().toString(36).slice(2, 10), sessionId: rec.sessionId, cwd: rec.cwd,
+  const id = Math.random().toString(36).slice(2, 10);
+  items.push({ id, sessionId: rec.sessionId, cwd: rec.cwd,
     label: (rec.label?.label || rec.title || path.basename(rec.cwd)).slice(0, 80), summary: (rec.label?.summary ?? '').slice(0, 400),
     left: left.slice(0, 300), closedAt: Date.now(), workspace,
     ...(rec.lane ? { lane: rec.lane, charter: rec.charter } : {}) });
   if (items.length > MAX) items = items.sort((a, b) => a.closedAt - b.closedAt).slice(-MAX);
   save();
+  return id;
 }
 
 /** Remove one (ticked off, or being reopened). Returns it. */
@@ -63,6 +76,60 @@ export function renameLater(from: string, to: string): void {
   let hit = false;
   for (const i of items) if (i.workspace === from) { i.workspace = to; hit = true; }
   if (hit) save();
+}
+
+// ---------- digest ----------
+const DIGEST = 'A person has just closed a Claude Code session; for them it is no longer work in progress. Write its digest from the excerpt. ' +
+  '"outcome": one plain sentence, under 30 words, on what came of the session: what was decided, made or found. ' +
+  '"loose": up to 3 loose ends the person would otherwise forget, each one short sentence that makes sense weeks later without the session ' +
+  '(something to send, check, commit, decide, or wait for). Only real ones; an empty list is a good answer. ' +
+  'Reply with only JSON: {"outcome":"...","loose":["..."]}';
+
+/** Write the digest for a just-closed entry from what its session held. `changed` is called when it lands. */
+export function digestLater(id: string, t: CleanupInput, changed: () => void): void {
+  const it = items.find((i) => i.id === id);
+  if (!it) return;
+  const settle = () => { items = items.filter((i) => i.id !== id || unfinished(i)); save(); changed(); };
+  if (process.env.CLAUDE_PANE_NO_LABELS) { it.digested = true; settle(); return; }
+  it.digested = false; save();
+  void ask(DIGEST, excerpt({ ...t, state: 'idle' }, 1), 90_000).then((out) => {
+    const now = items.find((i) => i.id === id);
+    if (!now) return; // dismissed or reopened meanwhile
+    now.digested = true;
+    try {
+      const j = JSON.parse(out!.slice(out!.indexOf('{'), out!.lastIndexOf('}') + 1));
+      now.outcome = clip(String(j.outcome ?? ''), 300);
+      now.loose = (Array.isArray(j.loose) ? j.loose : []).map((x: unknown) => clip(String(x), 200)).filter(Boolean).slice(0, 3);
+    } catch { /* no digest: it stays only if Clean up said something was left open */ }
+    settle();
+  });
+}
+
+// ---------- wrap up ----------
+/**
+ * Empty a workspace's tray into a list in the project (the server then opens one session to work through it): every loose end becomes a checkbox line in
+ * todo/loose-ends.md, in the folder most of those sessions ran in. Sessions still being digested stay.
+ * Returns the file and how many lines were added, or null if there was nothing to move or it could not be written.
+ */
+export function wrapUp(workspace: string): { file: string; folder: string; added: number; sessions: number } | null {
+  const mine = laterFor(workspace).filter((i) => i.digested !== false);
+  if (!mine.length) return null;
+  const count = new Map<string, number>();
+  for (const i of mine) count.set(i.cwd, (count.get(i.cwd) ?? 0) + 1);
+  const folder = [...count].sort((a, b) => b[1] - a[1])[0]![0];
+  const file = path.join(folder, 'todo', 'loose-ends.md');
+  const lines: string[] = [];
+  for (const i of [...mine].reverse()) for (const l of i.loose?.length ? i.loose : i.left ? [i.left] : []) lines.push(`- [ ] ${l.replace(/\s+/g, ' ')} (from "${i.label}")`);
+  try {
+    if (lines.length) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const head = fs.existsSync(file) ? '' : '# Loose ends\n\nThings left open by Claude Code sessions that were closed. A session opened from the Unfinished tray works through them and ticks them off.\n';
+      fs.appendFileSync(file, `${head}\n## Wrapped up ${new Date().toISOString().slice(0, 10)}\n\n${lines.join('\n')}\n`);
+    }
+  } catch { return null; }
+  items = items.filter((i) => !mine.includes(i));
+  save();
+  return { file, folder, added: lines.length, sessions: mine.length };
 }
 
 // ---------- clean up ----------

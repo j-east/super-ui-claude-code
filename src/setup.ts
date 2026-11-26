@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { WIN, DATA_DIR, INSTALL_CLAUDE, claudeCandidates } from './platform.js';
 import { cachedLabel } from './labeler.js';
-import { parseLine } from './transcript.js';
+import { parseLine, projectDirFor } from './transcript.js';
 
 export interface WelcomeInfo {
   /** The command the Install button types. */
@@ -110,14 +110,17 @@ const oneLine = (t: string, n: number) => { const x = t.replace(/\s+/g, ' ').tri
 /**
  * Sessions you could resume: the newest Claude Code session logs that are not open in a tab.
  * Named by our own tab label if we made one, else Claude Code's title, else the first thing you asked.
+ * With `folders`, only sessions from those project folders.
  * Leaves out headless runs (scripts, `claude -p`) and sessions whose folder is gone.
  */
-export async function pastSessions(open: Set<string>, limit = 12): Promise<PastSession[]> {
+export async function pastSessions(open: Set<string>, limit = 12, folders: string[] = []): Promise<PastSession[]> {
   const stat = (p: string) => fs.promises.stat(p).catch(() => null);
   let dirs: string[];
   try { dirs = await fs.promises.readdir(PROJECTS); } catch { return []; }
+  // `folders`: only sessions started in those project folders (a workspace's own).
+  const only = folders.length ? new Set(folders.map((f) => path.basename(projectDirFor(f)))) : null;
   const ranked = (await Promise.all(dirs.map(async (d) => ({ d, at: (await stat(path.join(PROJECTS, d)))?.mtimeMs ?? 0 }))))
-    .sort((a, b) => b.at - a.at).slice(0, 25);
+    .sort((a, b) => b.at - a.at).filter((x, i) => (only ? only.has(x.d) : i < 25));
   const files = (await Promise.all(ranked.map(async ({ d }) => {
     const dir = path.join(PROJECTS, d);
     const names = (await fs.promises.readdir(dir).catch(() => [] as string[])).filter((f) => f.endsWith('.jsonl'));
@@ -144,7 +147,7 @@ export async function pastSessions(open: Set<string>, limit = 12): Promise<PastS
   return out;
 }
 
-export async function welcomeInfo(fresh = false, open = new Set<string>()): Promise<WelcomeInfo> {
-  const [bin, recents, sessions] = await Promise.all([findClaude(fresh), recentFolders(), pastSessions(open)]);
+export async function welcomeInfo(fresh = false, open = new Set<string>(), folders: string[] = []): Promise<WelcomeInfo> {
+  const [bin, recents, sessions] = await Promise.all([findClaude(fresh), recentFolders(), pastSessions(open, 12, folders)]);
   return { install: INSTALL_CLAUDE, claude: bin ? { path: bin, version: await version(bin) } : null, recents, sessions };
 }

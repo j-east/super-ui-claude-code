@@ -118,6 +118,25 @@ if ((await fetch(notesUrl, { headers: rt.headers })).status !== 200) throw new E
 if ((await fetch(notesUrl)).status !== 403) throw new Error('heads-up address answered without its token');
 console.log('ok   the record tool answers this tab, and only with its token');
 
+// The Steward: its own tab, started with its own note and leave to use its tools; ordinary tabs do not get them.
+if (toolNames.includes('list_sessions')) throw new Error('an ordinary tab was offered the Steward tools');
+const notMine = await (await rpc({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'close_sessions', arguments: { ids: ['T1'] } } })).json();
+if (!notMine.result?.isError) throw new Error('an ordinary tab could call a Steward tool');
+send({ type: 'steward' });
+const st = await until('the Steward tab opens', () => msgs.find((m) => m.type === 'tab-open' && m.role === 'steward'), 45_000);
+const sArgv = await until('the Steward was started with its note', () => {
+  try { const all = [...fs.readFileSync(diary, 'utf8').matchAll(/^argv (.*)$/gm)].map((m) => JSON.parse(m[1])); return all.find((a) => /You are the Steward/.test(a[a.indexOf('--append-system-prompt') + 1] ?? '')) ?? null; } catch { return null; }
+}, 45_000);
+if (!/mcp__registrar__open_session/.test(sArgv[sArgv.indexOf('--allowedTools') + 1])) throw new Error('the Steward was not given leave to use its tools');
+if (/close_sessions/.test(sArgv[sArgv.indexOf('--allowedTools') + 1])) throw new Error('closing tabs must still ask');
+const sUrl = rt.url.replace(/\/mcp\/.*$/, `/mcp/${st.tab}`);
+const sRpc = (body) => fetch(sUrl, { method: 'POST', headers: { 'content-type': 'application/json', ...rt.headers }, body: JSON.stringify(body) });
+const sList = await (await sRpc({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_sessions', arguments: {} } })).json();
+if (!/Open sessions \(\d+\):\nT/.test(sList.result?.content?.[0]?.text ?? '')) throw new Error('list_sessions gave no sessions: ' + JSON.stringify(sList));
+const sOpen = await (await sRpc({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'open_session', arguments: { name: 'Work the list', prompt: 'Read todo/list.md and work through it.' } } })).json();
+if (sOpen.result?.isError || !/^Opened T\d+ "Work the list"/.test(sOpen.result?.content?.[0]?.text ?? '')) throw new Error('open_session failed: ' + JSON.stringify(sOpen));
+console.log('ok   the Steward has its own note and tools, and other tabs do not');
+
 // While "claude" runs, nothing may be typed for you.
 const before = screen.length;
 send({ type: 'cd', tab, dir: tmp });

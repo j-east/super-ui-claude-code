@@ -108,7 +108,7 @@ export class Tab {
     const snap = this.follower?.snapshot();
     return { type: 'tab-open', screen: this.screen.snapshot(), file: snap?.file ? path.basename(snap.file) : null,
       entries: snap?.entries ?? [], queue: snap?.queue ?? [], lunatic: this.lunatic, busy: this.busy, snapRows: this.snapRows, label: this.label, dialog: this.dialog,
-      group: this.group || this.id, lane: this.lane, ...this.modeFields() };
+      group: this.group || this.id, lane: this.lane, role: this.role, ...this.modeFields() };
   }
 
   input(data: string): void {
@@ -229,6 +229,14 @@ export class Tab {
     return { session: sid, tab: this.id, label: this.label?.label ?? this.title, cwd: c.cwd, entries: this.follower.snapshot().entries };
   }
   get hasDialog(): boolean { return !!this.dialog; }
+  /** Ask the running Claude to quit (it saves and exits as it does on a closed terminal). False if none is running. */
+  endClaude(): boolean {
+    const c = this.watch.current();
+    if (!c) return false;
+    try { process.kill(c.pid, 'SIGTERM'); return true; } catch { return false; }
+  }
+  /** 'steward' for the window's Steward session (see steward.ts); '' for an ordinary tab. */
+  role = '';
   /** What Clean up reads to judge whether this tab can be closed. Null for a plain shell. */
   cleanupInput(): { tab: string; label: string; cwd: string; state: 'working' | 'waiting' | 'idle'; idleMin: number; entries: Entry[] } | null {
     const c = this.watch.current();

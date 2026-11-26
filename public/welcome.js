@@ -14,6 +14,13 @@ export const setWelcomeInfo = (i) => { info = i; };
 /** Saved workspaces changed (one was saved or deleted). */
 export const setWelcomeWorkspaces = (list) => { if (info) info.workspaces = list; };
 
+/** "Find a session": what was typed, whether a search is running, and its answer (null: none yet). Kept here because the screen is rebuilt often. */
+const find = { q: '', busy: false, results: null, failed: false, focus: false };
+export function setFound(m) {
+  if (m.q !== find.q) return; // an answer to an earlier question
+  find.busy = false; find.results = m.results; find.failed = !!m.failed;
+}
+
 function ago(at) {
   const m = Math.max(0, Math.round((Date.now() - at) / 60000));
   if (m < 1) return 'just now';
@@ -113,19 +120,41 @@ export function welcomeEl(view) {
     cols.append(box);
   }
 
-  // Past sessions that are not open in a tab: click one to resume it here.
+  // Past sessions that are not open in a tab: click one to resume it here. In a workspace, only its own.
   const past = info?.sessions ?? [];
-  if (past.length) {
+  {
     const box = h('div', 'wl-recents');
-    box.append(h('div', 'wl-h', 'Resume a session'));
-    for (const p of past) {
+    box.append(h('div', 'wl-h', info?.scope ? `Resume a session · ${info.scope}` : 'Resume a session'));
+    const form = h('form', 'wl-find');
+    const q = h('input');
+    q.type = 'search'; q.placeholder = 'Describe a session to find it…'; q.value = find.q; q.spellcheck = false; q.disabled = find.busy;
+    q.title = 'Describe it in your own words. Claude (Sonnet) reads through the session logs to find it; it can take up to a minute.';
+    q.addEventListener('input', () => { if (!q.value && (find.results || find.q)) { find.q = ''; find.results = null; find.failed = false; find.focus = true; view.refreshEmpty(); } });
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = q.value.trim();
+      if (!text || find.busy) return;
+      Object.assign(find, { q: text, busy: true, results: null, failed: false });
+      view.send({ type: 'find-session', q: text });
+      view.refreshEmpty();
+    });
+    form.append(q);
+    box.append(form);
+    if (find.focus) { find.focus = false; setTimeout(() => q.focus(), 0); }
+    const line = (p, sub) => {
       const row = h('div', 'wl-recent');
-      row.title = `Resume in this tab\n${p.title}\n${p.cwd}`;
-      row.append(h('b', 'wl-stitle', p.title), h('span', 'wl-rpath', p.cwd.split(/[\\/]/).filter(Boolean).pop() || p.cwd), h('span', 'wl-ago', ago(p.at)));
+      row.title = `${p.open ? 'Open in a tab: go to it' : 'Resume in this tab'}\n${p.title}\n${p.cwd}`;
+      row.append(h('b', 'wl-stitle', p.title), h('span', 'wl-rpath' + (sub ? ' wl-titles' : ''), sub || p.cwd.split(/[\\/]/).filter(Boolean).pop() || p.cwd),
+        h('span', 'wl-ago', p.open ? 'open' : ago(p.at)));
       row.addEventListener('click', () => act({ type: 'resume-session', id: p.id, dir: p.cwd }));
-      box.append(row);
-    }
-    cols.append(box);
+      return row;
+    };
+    if (find.busy) box.append(h('div', 'wl-note', 'Looking through your sessions…'));
+    else if (find.failed) box.append(h('div', 'wl-note', 'The search did not finish. Try again, or pick from the list.'));
+    else if (find.results && !find.results.length) box.append(h('div', 'wl-note', 'Nothing matched. Try other words.'));
+    if (find.results?.length) for (const p of find.results) box.append(line(p, p.why));
+    else if (!find.busy) for (const p of past) box.append(line(p));
+    if (past.length || find.q || info?.scope) cols.append(box);
   }
 
   if (cols.children.length) root.append(cols);

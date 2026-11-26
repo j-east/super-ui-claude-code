@@ -81,8 +81,34 @@ function userString(id: string, raw: string): Entry[] {
   const out = tag(raw, 'local-command-stdout');
   if (out !== null) return out ? [{ kind: 'note', id, text: out }] : [];
   if (raw.includes('<local-command-caveat>')) return [];
-  const text = stripReminders(raw);
-  return text ? [{ kind: 'user', id, text }] : [];
+  // Background tasks reporting in: Claude Code delivers these as "user" messages full of plumbing.
+  const notes: Entry[] = [];
+  const rest = raw.replace(/<task-notification>([\s\S]*?)<\/task-notification>/g, (_m, body: string) => {
+    notes.push({ kind: 'note', id: `${id}:task${notes.length}`, text: taskNote(body) });
+    return '';
+  });
+  const text = stripReminders(rest);
+  return [...notes, ...(text ? [{ kind: 'user', id, text } as Entry] : [])];
+}
+
+/** One background-task notification, as a line or two: what finished, how it went, what it cost, what it said. */
+function taskNote(body: string): string {
+  const status = tag(body, 'status') ?? '';
+  const summary = (tag(body, 'summary') ?? 'Background task').replace(/\s+/g, ' ');
+  const stats: string[] = [];
+  const ms = Number(tag(body, 'duration_ms'));
+  if (ms > 0) stats.push(ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
+  const uses = Number(tag(body, 'tool_uses'));
+  if (uses > 0) stats.push(`${uses} tool use${uses > 1 ? 's' : ''}`);
+  const tokens = Number(tag(body, 'subagent_tokens') ?? tag(body, 'total_tokens'));
+  if (tokens > 0) stats.push(`${tokens >= 1000 ? (tokens / 1000).toFixed(1) + 'k' : tokens} tokens`);
+  const mark = /fail|error|killed|timed/i.test(status) ? '✗' : status && status !== 'completed' ? '◌' : '✓';
+  // Say the status only when the summary doesn't already ("… finished").
+  const head = `${mark} ${summary}${status && status !== 'completed' ? ` (${status})` : ''}${stats.length ? '  ·  ' + stats.join(' · ') : ''}`;
+  // The report itself, unless it is only a pointer to where the report went.
+  const result = tag(body, 'result') ?? '';
+  const say = /delivered to you as a message|not repeated here/.test(result) ? '' : result;
+  return say ? `${head}\n${say.length > 1500 ? say.slice(0, 1500) + '…' : say}` : head;
 }
 
 function resultText(content: unknown): string {

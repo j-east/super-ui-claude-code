@@ -13,6 +13,18 @@ const el = (tag, cls, text) => {
   return n;
 };
 
+const BOX = /[│┃├┤┌┐└┘┬┴┼╭╮╰╯]|[─━]{4,}/; // a line of a terminal-drawn table or box
+let ratio = 0;
+/** Width of one character of the live preview's font, as a fraction of its font size. */
+function monoRatio() {
+  if (ratio) return ratio;
+  const probe = el('span', 'live', '0'.repeat(100));
+  probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;padding:0;border:0;margin:0;font-size:100px';
+  document.body.append(probe);
+  ratio = probe.getBoundingClientRect().width / 10000 || 0.602;
+  probe.remove();
+  return ratio;
+}
 const SPINNER = /^\s*\S\s+\S.*…\s*\(/; // e.g. "✶ Symbioting… (10s · ↓ 317 tokens)"
 const PLAIN = new Set(['text', 'txt', 'plain', 'plaintext', 'none', 'md', 'markdown']);
 /** Highlight only fences that name a real language; unlabeled/plain-text blocks (often prose) wrap instead. */
@@ -284,6 +296,7 @@ export class TabView {
     next.forEach((line, i) => {
       if (kids[i]) { if (kids[i].textContent !== line) kids[i].textContent = line; }
       else this.liveBody.append(el('div', 'live-line', line || ' '));
+      kids[i].classList.toggle('box', BOX.test(line));
     });
     while (kids.length > next.length) kids[kids.length - 1].remove();
     if (this.liveStatus.textContent !== status) this.liveStatus.textContent = status;
@@ -291,10 +304,32 @@ export class TabView {
     const wasShown = !this.liveEl.hidden && this.liveEl.isConnected;
     this.liveEl.hidden = false;
     if (!wasShown || this.logInner.lastElementChild !== this.liveEl) this.logInner.append(this.liveEl); // always last
+    this.fitLive(next);
     // Never shrink mid-run: lock in the tallest height so far.
     const h = this.liveEl.offsetHeight;
     if (h > (parseFloat(this.liveEl.style.minHeight) || 0)) this.liveEl.style.minHeight = h + 'px';
     if (this.pinned) this.glideToBottom();
+  }
+
+  /**
+   * Tables and other box drawings are laid out for the terminal's width, which is usually wider than
+   * the reading column, so wrapping them scrambles them. Those lines never wrap; instead the block
+   * grows to the right as far as the pane allows, then the type shrinks (to a floor), then it scrolls.
+   * Prose lines keep wrapping to whatever width results.
+   */
+  fitLive(lines) {
+    const st = this.liveEl.style;
+    const widest = Math.max(0, ...lines.filter((l) => BOX.test(l)).map((l) => l.length));
+    st.width = ''; st.fontSize = '';
+    if (!widest) return;
+    const PAD = 18, BASE = 13, FLOOR = 10.5;
+    const need = widest * BASE * monoRatio() + PAD;
+    if (need <= this.liveEl.clientWidth) return;
+    const avail = this.logEl.clientWidth - (this.liveEl.getBoundingClientRect().left - this.logEl.getBoundingClientRect().left) - 16;
+    if (avail <= this.liveEl.clientWidth) { /* no room to grow: shrink only */ }
+    else st.width = Math.min(need, avail) + 'px';
+    const room = Math.max(avail, this.liveEl.clientWidth);
+    if (need > room) st.fontSize = Math.max(FLOOR, BASE * (room - PAD) / (need - PAD)).toFixed(2) + 'px';
   }
 
   /** The question Claude Code is showing (or null): a card with every option, answerable by click. */

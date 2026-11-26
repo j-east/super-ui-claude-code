@@ -46,7 +46,7 @@ function claude {
   # Order matters: the first two flags take a list, so each must be followed by another flag.
   local -a hook
   if [[ -n "$CLAUDE_PANE_SETTINGS" && -f "$CLAUDE_PANE_SETTINGS" ]]; then hook=(--settings "$CLAUDE_PANE_SETTINGS"); fi
-  command claude --allowedTools mcp__registrar__check_record --mcp-config "$CLAUDE_PANE_MCP" --append-system-prompt "$CLAUDE_PANE_NOTE" "\${hook[@]}" "$@"
+  command claude --allowedTools "\${CLAUDE_PANE_ALLOW:-mcp__registrar__check_record}" --mcp-config "$CLAUDE_PANE_MCP" --append-system-prompt "$CLAUDE_PANE_NOTE" "\${hook[@]}" "$@"
 }
 fi
 `;
@@ -92,7 +92,8 @@ const PS_CLAUDE = '; if ($env:CLAUDE_PANE_MCP) { function global:claude { ' +
   '(@($args | Where-Object { $_ -is [string] -and (@(\'-p\',\'--print\',\'--mcp-config\',\'--strict-mcp-config\',\'--settings\',\'-h\',\'--help\',\'-v\',\'--version\') -contains $_) }).Count -gt 0) -or ' +
   '($args.Count -gt 0 -and $args[0] -cmatch \'^[a-z][a-z-]*$\'); ' +
   '$hook = @(); if ($env:CLAUDE_PANE_SETTINGS -and (Test-Path -LiteralPath $env:CLAUDE_PANE_SETTINGS)) { $hook = @(\'--settings\', $env:CLAUDE_PANE_SETTINGS) }; ' +
-  'if ($plain) { & $c.Source @args } else { & $c.Source --allowedTools mcp__registrar__check_record --mcp-config $env:CLAUDE_PANE_MCP --append-system-prompt $env:CLAUDE_PANE_NOTE @hook @args } } }';
+  '$allow = if ($env:CLAUDE_PANE_ALLOW) { $env:CLAUDE_PANE_ALLOW } else { \'mcp__registrar__check_record\' }; ' +
+  'if ($plain) { & $c.Source @args } else { & $c.Source --allowedTools $allow --mcp-config $env:CLAUDE_PANE_MCP --append-system-prompt $env:CLAUDE_PANE_NOTE @hook @args } } }';
 
 /** The shell a tab runs. macOS: your login shell. Windows: PowerShell 7 if installed, else Windows PowerShell. */
 export function shellCommand(): { file: string; args: string[]; env: Record<string, string> } {
