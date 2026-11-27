@@ -65,9 +65,11 @@ starts with its task typed in, waiting for you to press Enter.
 **Close tabs without leaving loose ends.** Closing a tab says "this is no longer in progress". The app
 reads the session as it closes. If nothing was left open, the tab is simply gone. If it left loose ends
 (something to send, check or decide), it waits in an **Unfinished** tray under your tabs until you
-reopen it, dismiss it, or press **Finish these in one session**. That empties the tray into one new
-session in your tab list whose job is to work through all of them; the list is kept in
-`todo/loose-ends.md` in your project and ticked off as it goes. When the tab list gets long,
+reopen it, dismiss it, or press **Consolidate**. That empties the tray into `todo/loose-ends.md` in
+your project and hands the list to the Steward, which merges duplicates, strikes what is already done
+and tells you what is left. Or press **Schedule time for these** and the
+Steward puts blocks on your calendar to finish them, through whatever calendar connection your Claude
+Code has (Google Calendar, another MCP server or a skill). It shows you the blocks first. When the tab list gets long,
 **Tidy tabs** reads your open sessions and shows them with checkboxes. The ones that look finished come
 ticked. You decide, then close them in one click. Sessions that are working or waiting on you are never
 ticked for you.

@@ -125,7 +125,7 @@ under their tab and gives each its charter again. Dragging a row to another wind
 `src/later.ts` keeps `later.json` in the data folder: one entry per Claude tab you closed (session id,
 folder, label, what was left, the workspace it was closed in). Each window is sent the entries for its
 workspace. On close, one queued headless Sonnet call writes the entry's digest (`outcome`, up to three
-`loose` ends). An entry whose digest finds no loose ends is removed at once, so the tray ("Unfinished" on the page) holds only sessions that left something open or are still being read. `later-wrap` (`wrapUp`) appends every loose end as a checkbox line to `todo/loose-ends.md` in the folder most of those sessions ran in, empties the tray, and opens one tab with a brief drafted (not sent) to work through that file. Dismissing removes the entry; Reopen opens a tab with `claude --resume`. An entry
+`loose` ends). An entry whose digest finds no loose ends is removed at once, so the tray ("Unfinished" on the page) holds only sessions that left something open or are still being read. `later-wrap` (`wrapUp`) appends every loose end as a checkbox line to `todo/loose-ends.md` in the folder most of those sessions ran in, empties the tray, and sends the Steward a request to consolidate that file. `later-schedule` writes the same file, then drafts a request into the Steward to put time on the calendar; the app has no calendar code of its own, the Steward session uses whatever calendar tool Claude Code has. How you like time scheduled is free text in `prefs.json` (`src/prefs.ts`). Dismissing removes the entry; Reopen opens a tab with `claude --resume`. An entry
 also drops off by itself when its session is open again by any route. Session logs are never touched.
 
 Clean up (`cleanup-review`) sends one headless Sonnet call with an excerpt of every open Claude tab in
@@ -144,7 +144,7 @@ are dropped. The same folders scope the "Resume a session" list (`workspaceFolde
 
 ## The Steward
 
-`src/steward.ts`. On the page the Steward is a panel on the right (`#steward-dock` in `app.js`, a `Pane` of its own outside the `panes` list), not a row in the tab list. Underneath, a tab with `role: 'steward'` is an ordinary Claude Code session started with a
+`src/steward.ts`. A Steward runs in its own folder (`steward/<workspace>` in the data folder, `stewardDir`), so its logs stay out of the project's; the workspace's folders are passed with `--add-dir`. On the page the Steward is a panel on the right (`#steward-dock` in `app.js`, a `Pane` of its own outside the `panes` list), not a row in the tab list. Underneath, a tab with `role: 'steward'` is an ordinary Claude Code session started with a
 different launch note (`STEWARD_NOTE`, in place of the usual one) and offered five more tools on the
 tab's MCP address: `list_sessions`, `read_session`, `open_session`, `close_sessions`,
 `reopen_session`. The server implements them in `stewardTool` (`server.ts`) and answers them only for

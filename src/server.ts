@@ -14,10 +14,11 @@ import { Tab } from './tab.js';
 import { handoff, writeInstance, clearInstance } from './instance.js';
 import { welcomeInfo } from './setup.js';
 import { cachedLabel } from './labeler.js';
-import { WIN, INSTALL_CLAUDE, shq, cdCommand } from './platform.js';
+import { WIN, DATA_DIR, INSTALL_CLAUDE, shq, cdCommand } from './platform.js';
 import { stopProcHelper } from './procwatch.js';
 import { clearRecordTool, forgetTab, handleNotes, handleRecordTool, recordToolEnv, type LaneRequest } from './recordtool.js';
 import { projectRoot, recordText, initRegistrar, registrarMsg, poke as pokeRegistrar, runNow as runRegistrar, setOn as setRegistrarOn, forgetDecision, closeFlag, takeNotes, dropNote } from './registrar.js';
+import { scheduling, setScheduling } from './prefs.js';
 import { findSessions } from './findsession.js';
 import { sessionText } from './steward.js';
 import { findTranscript, parseLine, type Entry } from './transcript.js';
@@ -128,7 +129,7 @@ function moveTab(tab: Tab, to: string): void {
 
 /** Each window's list of closed tabs (the ones closed in its workspace). */
 function sendLater(only?: WebSocket): void {
-  for (const [ws, w] of clients) if (!only || ws === only) send(ws, { type: 'later', items: laterFor(windowWorkspace.get(w) ?? '') });
+  for (const [ws, w] of clients) if (!only || ws === only) send(ws, { type: 'later', items: laterFor(windowWorkspace.get(w) ?? ''), scheduling: scheduling() });
 }
 
 /** Tabs you closed (newest last), so Cmd+Z can bring one back with its session resumed. */
@@ -166,8 +167,9 @@ function restoreTab(win: string, rec: WorkspaceTab, group?: string): Tab {
   const id = typeof rec.sessionId === 'string' && UUID.test(rec.sessionId) ? rec.sessionId : null;
   // Waits (up to 20 s) for the new tab's login shell to finish starting before typing.
   if (id && rec.label) tab.seedLabel(rec.label);
-  if (id) { resumeIds.set(tab.id, id); void tab.typeCommand(`claude --resume ${id}`, 20_000); }
-  else if (rec.claude) void tab.typeCommand('claude', 20_000);
+  const more = rec.role === 'steward' ? stewardArgs(win) : '';
+  if (id) { resumeIds.set(tab.id, id); void tab.typeCommand(`claude --resume ${id}${more}`, 20_000); }
+  else if (rec.claude) void tab.typeCommand(`claude${more}`, 20_000);
   return tab;
 }
 
@@ -417,14 +419,31 @@ function mainFolder(win: string): string {
   return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? os.homedir();
 }
 /** Go to this window's Steward session, starting one if there is none. */
-function openSteward(win: string): void {
+/**
+ * Where a window's Steward runs: a folder of its own under the app's data folder, one per workspace.
+ * Its conversations are the app's housekeeping, so they stay out of the project's session logs (and so
+ * out of Resume and Find a session). The workspace's real folders are handed to it with --add-dir.
+ */
+function stewardDir(win: string): string {
+  const name = (windowWorkspace.get(win) || 'window').replace(/[^\w .-]+/g, '_').trim().slice(0, 80) || 'window';
+  const dir = path.join(DATA_DIR, 'steward', name);
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* falls back below */ }
+  return fs.existsSync(dir) ? dir : mainFolder(win);
+}
+/** The --add-dir flag giving a Steward the workspace's folders (it runs outside them). */
+function stewardArgs(win: string): string {
+  const dirs = [...new Set([mainFolder(win), ...workspaceFolders(win)])].filter((d) => !d.startsWith(DATA_DIR) && fs.existsSync(d)).slice(0, 8);
+  return dirs.length ? ` --add-dir ${dirs.map(shq).join(' ')}` : '';
+}
+function openSteward(win: string): Tab {
   let tab = windowTabs(win).find((t) => t.role === 'steward');
   if (!tab) {
-    tab = openTab(win, mainFolder(win), undefined, undefined, 'steward');
+    tab = openTab(win, stewardDir(win), undefined, undefined, 'steward');
     tab.seedLabel({ label: 'Steward', summary: 'Organises this workspace: gathers tasks, opens and closes sessions, keeps its instructions current.' });
-    void tab.typeCommand('claude', 20_000);
-  } else if (!tab.claudeRunning) void tab.typeCommand('claude', 20_000);
+    void tab.typeCommand(`claude${stewardArgs(win)}`, 20_000);
+  } else if (!tab.claudeRunning) void tab.typeCommand(`claude${stewardArgs(win)}`, 20_000);
   toWindow(win, { type: 'focus-tab', tab: tab.id });
+  return tab;
 }
 /** One call to a Steward tool from the Steward session in tab `from`. Null if that tab is not a Steward. */
 function stewardTool(from: string, name?: string, args: Record<string, unknown> = {}): { text: string; isError?: boolean } | null {
@@ -695,20 +714,28 @@ server.on('upgrade', (req, sock, head) => {
         });
         return;
       }
-      if (m.type === 'later-wrap') { // the whole tray becomes one session in the tab list, working from a list in the project
+      if (m.type === 'later-schedule') { // the tray goes to the list, and the Steward is asked to put time for it on the calendar
+        if (typeof m.prefs === 'string' && m.prefs.trim()) setScheduling(m.prefs);
         const r = wrapUp(windowWorkspace.get(win) ?? '');
         if (!r) { send(ws, { type: 'toast', text: 'Could not write the list; nothing was removed.' }); return; }
         sendLater();
         if (!r.added) return;
-        const rel = path.relative(r.folder, r.file);
-        const tab = openTab(win, r.folder);
-        tab.seedLabel({ label: `Finish ${r.added} loose end${r.added === 1 ? '' : 's'}`, summary: `Works through the loose ends left by ${r.sessions} closed session${r.sessions === 1 ? '' : 's'}, listed in ${rel}.` });
-        void tab.typeCommand('claude', 20_000);
-        draftWhenReady(tab, `Read ${rel}. It lists small loose ends left by sessions I closed; each line names the session it came from. ` +
-          'Take the unticked items in order. Most are quick: do each one, then tick it off in the file with a few words on what you did. ' +
-          'If an item is already done or no longer applies, tick it and say so. If one is unclear or needs me, leave it unticked, note why beside it, and move on. ' +
-          'Stop and ask before anything that sends, spends or deletes. When you reach the end, tell me what is still unticked.');
-        toWindow(win, { type: 'focus-tab', tab: tab.id });
+        const had = windowTabs(win).some((t) => t.role === 'steward' && t.claudeRunning);
+        draftWhenReady(openSteward(win), `Put time on my calendar to finish the loose ends in ${r.file} (${r.added} unticked item${r.added === 1 ? '' : 's'}, most of them quick). ` +
+          `How I like it scheduled: ${scheduling()} ` +
+          'Read the file, group the items into as few blocks as will honestly cover them, and check my calendar for free time first. ' +
+          'Name each event after what gets finished, and put the file path and its items in the description. Show me the blocks you plan before creating them.', had);
+        return;
+      }
+      if (m.type === 'later-wrap') { // the whole tray goes to a list in the project, and the Steward is asked to consolidate it
+        const r = wrapUp(windowWorkspace.get(win) ?? '');
+        if (!r) { send(ws, { type: 'toast', text: 'Could not write the list; nothing was removed.' }); return; }
+        sendLater();
+        if (!r.added) return;
+        const had = windowTabs(win).some((t) => t.role === 'steward' && t.claudeRunning);
+        draftWhenReady(openSteward(win), `Consolidate the loose ends in ${r.file} (${r.added} just added from ${r.sessions} closed session${r.sessions === 1 ? '' : 's'}). ` +
+          'Merge duplicates, strike the ones the project already shows are done (check the files, do not guess), and group what is left by what it touches. Rewrite the file that way. ' +
+          'Then tell me in a few lines what is left and how you would get it finished: one session to work through the list, or time on my calendar. Do not start either until I say.', had, true);
         return;
       }
       if (m.type === 'later-done') { takeLater(String(m.id)); sendLater(); return; }

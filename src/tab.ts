@@ -40,6 +40,7 @@ export class Tab {
   charter = '';
   private dialog: Dialog | null = null; // the question Claude Code is showing, if any
   private dialogAt = -1;
+  private dialogChecked = 0;
   private idleSince = Date.now();       // when Claude last stopped working (for the inbox)
   private label: Label | null = null; // a few words + a sentence about the session, for the tab
 
@@ -317,6 +318,11 @@ export class Tab {
     if (this.shell.lastOutputAt !== this.dialogAt && quietFor >= 250) {
       this.dialogAt = this.shell.lastOutputAt;
       this.setDialog(claude ? this.screen.dialog() : null);
+    } else if (this.dialog && quietFor < 250 && now - this.dialogChecked >= 400) {
+      // Answered, and Claude went straight back to work: its spinner keeps the screen from ever
+      // settling, so look anyway. Only to take a gone dialog away; a new one waits for a settled screen.
+      this.dialogChecked = now;
+      if (!claude || !this.screen.dialog()) this.setDialog(null);
     }
     if (!claude) { this.snapRows = 0; this.busyStart = 0; this.pendingIdle = false; this.setLive(''); return; }
 

@@ -18,30 +18,49 @@ const ago = (at) => {
 };
 const STATUS = { done: 'Done', nearly: 'Nearly done', active: 'Still going', unknown: 'Not judged' };
 
-/** @param {{ send: (m: object) => void, box: HTMLElement, claudeTabs: () => number }} deps */
-export function initLater({ send, box, claudeTabs }) {
+/** @param {{ send: (m: object) => void, box: HTMLElement, claudeTabs: () => number, tidyBtn: HTMLElement }} deps */
+export function initLater({ send, box, claudeTabs, tidyBtn }) {
   let items = [];
   let open = localStorage.getItem('later-open') !== '0';
 
   // ---------- the list ----------
   const head = h('div', 'later-head');
   const toggle = h('button', 'later-toggle');
-  const clean = h('button', 'later-clean', 'Tidy tabs…');
-  clean.title = 'Look over the open tabs and close the ones that are finished';
-  const wrap = h('button', 'later-wrap', 'Finish these in one session');
-  wrap.title = 'Opens one new session with all of these loose ends as its job, and empties this tray. The list is kept in todo/loose-ends.md so nothing is lost; the brief is typed in for you to send.';
+  // In the tray's header: gather everything in it into one session.
+  const wrap = h('button', 'later-clean', 'Consolidate');
+  wrap.title = 'Hands these to the Steward: it merges duplicates, strikes what is already done and tells you what is left. The list is kept in todo/loose-ends.md and this tray is emptied.';
   wrap.onclick = () => send({ type: 'later-wrap' });
-  head.append(toggle, clean);
+  const sched = h('button', 'later-wrap', 'Schedule time for these…');
+  sched.title = 'Asks the Steward to put time on your calendar to finish these, using the calendar connection your Claude Code has. The list is kept in todo/loose-ends.md and this tray is emptied.';
+  let scheduling = '';
+  const sd = h('dialog', 'ws-dialog cu-dialog');
+  sd.innerHTML = `
+    <header><h2>Schedule time</h2><button class="ws-x" title="Close (Esc)">×</button></header>
+    <section class="cu-body"><p class="ws-muted">How should time be put on your calendar? This is remembered and given to the Steward, which uses the calendar connection your Claude Code already has (Google Calendar, another MCP server or a skill).</p>
+      <textarea class="sd-prefs" rows="3" maxlength="600"></textarea></section>
+    <footer class="cu-foot"><span class="ws-muted">The Steward shows you the blocks before it creates them.</span>
+      <button class="cu-cancel" type="button">Cancel</button><button class="primary sd-go" type="button">Ask the Steward</button></footer>`;
+  document.body.append(sd);
+  const sdText = sd.querySelector('.sd-prefs');
+  const sdClose = () => { if (sd.open) sd.close(); };
+  sd.querySelector('.ws-x').onclick = sdClose;
+  sd.querySelector('.cu-cancel').onclick = sdClose;
+  sd.addEventListener('click', (e) => { if (e.target === sd) sdClose(); });
+  sd.querySelector('.sd-go').onclick = () => { send({ type: 'later-schedule', prefs: sdText.value }); sdClose(); };
+  sched.onclick = () => { sdText.value = scheduling; sd.showModal(); sdText.focus(); };
+  head.append(toggle, wrap);
   const list = h('div', 'later-list');
   box.append(head, list);
   toggle.onclick = () => { open = !open; localStorage.setItem('later-open', open ? '1' : '0'); render(); };
-  clean.onclick = () => review();
+  tidyBtn.onclick = () => review();
 
   let expanded = null; // id of the item whose digest is showing
   function render() {
     toggle.textContent = items.length ? `${open ? '▾' : '▸'} Unfinished · ${items.length}` : '';
     toggle.title = 'Tabs you closed that left loose ends. Closed tabs with nothing left open are not kept here.';
     toggle.disabled = !items.length;
+    head.hidden = !items.length;
+    wrap.hidden = !items.some((it) => it.digested !== false);
     list.hidden = !open || !items.length;
     list.replaceChildren();
     for (const it of items) {
@@ -73,7 +92,7 @@ export function initLater({ send, box, claudeTabs }) {
       card.append(acts);
       list.append(card);
     }
-    if (items.some((it) => it.digested !== false)) list.append(wrap);
+    if (items.some((it) => it.digested !== false)) list.append(sched);
   }
   render();
 
@@ -134,8 +153,8 @@ export function initLater({ send, box, claudeTabs }) {
   }
 
   return {
-    setItems(list) { items = list; render(); },
+    setItems(list, how) { items = list; if (how) scheduling = how; render(); },
     setRows,
-    get isOpen() { return dlg.open; },
+    get isOpen() { return dlg.open || sd.open; },
   };
 }

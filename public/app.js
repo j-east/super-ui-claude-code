@@ -598,7 +598,7 @@ $('session-btn').onclick = (e) => {
 };
 document.addEventListener('click', (e) => { if (!sessionMenu.contains(e.target)) sessionMenu.hidden = true; });
 
-const later = initLater({ send, box: $('later'), claudeTabs: () => [...views.values()].filter((v) => v.mode === 'claude' && !v.role).length });
+const later = initLater({ send, box: $('later'), tidyBtn: $('tidy-btn'), claudeTabs: () => [...views.values()].filter((v) => v.mode === 'claude' && !v.role).length });
 
 function onMessage(m) {
   if (m.type === 'hello') {
@@ -613,7 +613,7 @@ function onMessage(m) {
   }
   if (m.type === 'workspaces') { workspaces.setList(m.list); setWelcomeWorkspaces(m.list); for (const v of views.values()) v.refreshEmpty(); return; }
   if (m.type === 'inbox') { inbox.setItems(m.items); return; }
-  if (m.type === 'later') { later.setItems(m.items); return; }
+  if (m.type === 'later') { later.setItems(m.items, m.scheduling); return; }
   if (m.type === 'cleanup') { later.setRows(m.rows); return; }
   if (m.type === 'registrar') { registrar.setState(m); return; }
   if (m.type === 'welcome') { setWelcomeInfo(m); for (const v of views.values()) v.refreshEmpty(); return; }

@@ -525,3 +525,16 @@ body.side-drag #steward-dock .pane { pointer-events: none; }
 .later-wrap:hover { border-color: var(--accent); }
 .later-toggle:disabled { cursor: default; }
 .later-toggle:disabled:hover { background: none; }
+
+.sd-prefs { width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 13px; line-height: 1.45; resize: vertical; }
+.later-wrap + .later-wrap { margin-top: 0; }
+
+/* top of the tab list: New tab, and Tidy tabs for the open tabs below it */
+#side-top { flex: none; display: flex; align-items: center; gap: 2px; margin: 6px 6px 0; }
+#side-top #new-tab { flex: 1 1 auto; min-width: 0; margin: 0; }
+#tidy-btn { flex: none; border: 0; background: none; color: var(--accent); cursor: pointer; height: 30px; border-radius: 7px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
+#tidy-btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+body.side-collapsed #tidy-btn { display: none; }
+body.side-collapsed #side-top { margin: 6px 4px 0; }
+.later-head[hidden] { display: none; }
