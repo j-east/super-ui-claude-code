@@ -5,6 +5,7 @@ import { PtySession } from './session.js';
 import { WIN, CLEAR_LINE, shellCommand } from './platform.js';
 import { ProcWatch } from './procwatch.js';
 import { Screen, type Dialog } from './screen.js';
+import { isTrusted, rememberTrust } from './prefs.js';
 import { cachedLabel, maybeLabel, type Label } from './labeler.js';
 import { TranscriptFollower, projectDirFor, resumedSessionId, sessionIdForPid, findTranscript, type Entry } from './transcript.js';
 
@@ -41,6 +42,9 @@ export class Tab {
   private dialog: Dialog | null = null; // the question Claude Code is showing, if any
   private dialogAt = -1;
   private dialogChecked = 0;
+  private trustAsked = '';   // folder whose "trust this folder?" question is showing, or was just answered
+  private trustGoneAt = 0;
+  private trustSig = '';
   private idleSince = Date.now();       // when Claude last stopped working (for the inbox)
   private label: Label | null = null; // a few words + a sentence about the session, for the tab
 
@@ -203,6 +207,26 @@ export class Tab {
     if ((d?.sig ?? null) === (this.dialog?.sig ?? null)) return;
     this.dialog = d;
     this.emit({ type: 'dialog', dialog: d });
+    this.trust(d);
+  }
+
+  /**
+   * "Trust this folder?": a folder you said yes to in this app before is answered yes for you. Otherwise
+   * the question is watched: if it goes away and Claude is still running a moment later, you said yes
+   * (no exits Claude), and tick() remembers the folder.
+   */
+  private trust(d: Dialog | null): void {
+    const yes = d ? d.options.findIndex((o) => /^Yes, I trust/i.test(o.label)) : -1;
+    const cwd = this.watch.current()?.cwd ?? '';
+    if (d && yes >= 0 && cwd) {
+      this.trustGoneAt = 0;
+      if (!isTrusted(cwd)) { this.trustAsked = cwd; return; }
+      this.trustAsked = '';
+      if (d.sig === this.trustSig) return; // answered already; wait for it to go
+      this.trustSig = d.sig;
+      const keys = Screen.keysFor(d, yes);
+      if (keys) { this.input(keys); this.emit({ type: 'trust-auto', cwd }); }
+    } else if (this.trustAsked && !this.trustGoneAt) this.trustGoneAt = Date.now();
   }
 
   /** Pick a row of the dialog on screen. `sig` must match what is showing now, so a stale click does nothing. */
@@ -323,6 +347,10 @@ export class Tab {
       // settling, so look anyway. Only to take a gone dialog away; a new one waits for a settled screen.
       this.dialogChecked = now;
       if (!claude || !this.screen.dialog()) this.setDialog(null);
+    }
+    if (this.trustAsked && (!claude || (this.trustGoneAt && now - this.trustGoneAt >= 3000))) {
+      if (claude && this.watch.current()!.cwd === this.trustAsked) rememberTrust(this.trustAsked);
+      this.trustAsked = ''; this.trustGoneAt = 0;
     }
     if (!claude) { this.snapRows = 0; this.busyStart = 0; this.pendingIdle = false; this.setLive(''); return; }
 

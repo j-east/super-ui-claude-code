@@ -56,7 +56,8 @@ finished, who's still going. Answer questions right from the list.
 
 **Pick up where you left off.** Every window becomes a workspace as you use it: it names itself after
 the project and saves itself as tabs come and go. Close it, reopen it tomorrow, and every conversation
-resumes. Closed a tab by accident? `⌘Z` brings it back.
+resumes. Closed a tab by accident? `⌘Z` brings it back. And when Claude Code asks whether you trust a
+folder you already said yes to in the app, the app answers for you and says so.
 
 **Lanes.** When a session decides a piece of work belongs in its own focused session, it can open one
 beside itself. The tab on the left stays one row; its sessions line up across the top. The new session

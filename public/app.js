@@ -671,6 +671,7 @@ function onMessage(m) {
     case 'dialog': v.setDialog(m.dialog); return;
     case 'snap': v.snapRows = m.rows; paneOf(v)?.autoSnap(); return;
     case 'queue': v.setQueue(m.items); return;
+    case 'trust-auto': v.note('Folder trusted, as you chose before in this app.', 'note'); break;
     case 'auto-answer': v.note(`🌀 Lunatic mode picked: ${m.label}`, 'note lunatic-note'); break;
     case 'tab-moved': // moved to another window: drop the view here, the tab lives on there
     case 'tab-closed': {
